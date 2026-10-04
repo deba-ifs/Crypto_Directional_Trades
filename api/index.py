@@ -2,29 +2,46 @@ from http.server import BaseHTTPRequestHandler
 import json
 import time
 import requests
+import urllib.parse
 import pandas as pd
 import numpy as np
 
 DELTA_BASE_URL = "https://api.india.delta.exchange"
 
-# In-memory signal journal store & adaptive hyperparameter state
-SIGNAL_JOURNAL = []
-ADAPTIVE_STATE = {
-    "adx_thresh": 22.0,
-    "min_squeeze_bars": 12,
-    "tp_mult": 2.5,
-    "sl_mult": 1.0,
-    "last_tuning_trade_count": 0,
-    "learning_status": "INITIALIZED (Baseline 22.0 ADX)"
+# Isolated adaptive states and journals for each timeframe
+QUANT_ENGINES = {
+    "15m": {
+        "journal": [],
+        "adaptive_state": {
+            "adx_thresh": 22.0,
+            "min_squeeze_bars": 12, # 3 hours
+            "tp_mult": 2.5,
+            "sl_mult": 1.0,
+            "max_hold_bars": 32, # 8 hours
+            "learning_status": "INITIALIZED (15M Baseline: ADX 22.0)"
+        }
+    },
+    "1h": {
+        "journal": [],
+        "adaptive_state": {
+            "adx_thresh": 25.0,
+            "min_squeeze_bars": 5, # 5 hours
+            "tp_mult": 2.8,
+            "sl_mult": 1.0,
+            "max_hold_bars": 24, # 24 hours
+            "learning_status": "INITIALIZED (1H Baseline: ADX 25.0)"
+        }
+    }
 }
 
-def fetch_15m_candles(limit=250):
+def fetch_candles(tf="15m", limit=250):
     url = f"{DELTA_BASE_URL}/v2/history/candles"
     end = int(time.time())
-    start = end - (limit * 900)
+    step = 900 if tf == "15m" else 3600
+    start = end - (limit * step)
     
-    params = {"symbol": "ETHUSD", "resolution": "15m", "start": start, "end": end}
-    headers = {"User-Agent": "CryptoDirectionalTrades/3.0"}
+    params = {"symbol": "ETHUSD", "resolution": tf, "start": start, "end": end}
+    headers = {"User-Agent": "CryptoDirectionalTrades/4.0"}
     
     try:
         res = requests.get(url, params=params, headers=headers, timeout=8)
@@ -38,11 +55,11 @@ def fetch_15m_candles(limit=250):
             return df.sort_values("timestamp").reset_index(drop=True)
     except Exception:
         pass
-    return generate_fallback_data(limit)
+    return generate_fallback_data(tf, limit)
 
 def fetch_options_chain():
     url = f"{DELTA_BASE_URL}/v2/tickers"
-    headers = {"User-Agent": "CryptoDirectionalTrades/3.0"}
+    headers = {"User-Agent": "CryptoDirectionalTrades/4.0"}
     try:
         res = requests.get(url, headers=headers, timeout=8)
         data = res.json()
@@ -104,15 +121,15 @@ def compute_quant_analytics(df):
     
     return d.bfill().ffill()
 
-def run_adaptive_learning_engine():
-    """
-    Evaluates recorded trade journal performance and self-adjusts strategy parameters.
-    """
-    global ADAPTIVE_STATE
-    closed_trades = [t for t in SIGNAL_JOURNAL if t["status"] in ["TARGET_HIT", "SL_HIT"]]
+def run_adaptive_learning_engine(tf):
+    engine = QUANT_ENGINES[tf]
+    journal = engine["journal"]
+    state = engine["adaptive_state"]
+    
+    closed_trades = [t for t in journal if t["status"] in ["TARGET_HIT", "SL_HIT"]]
     
     if len(closed_trades) < 5:
-        ADAPTIVE_STATE["learning_status"] = f"ACCUMULATING DATA ({len(closed_trades)}/5 Min Trades)"
+        state["learning_status"] = f"ACCUMULATING DATA ({len(closed_trades)}/5 Min Trades)"
         return
         
     wins = [t for t in closed_trades if t["status"] == "TARGET_HIT"]
@@ -122,33 +139,28 @@ def run_adaptive_learning_engine():
     total_loss = abs(sum([t["pnl_pct"] for t in closed_trades if t["status"] == "SL_HIT"]))
     profit_factor = round(total_profit / (total_loss + 1e-9), 2)
     
-    # Adaptive Feedback Rules
     if win_rate < 0.40 or profit_factor < 1.1:
-        # Tighten quality filters to avoid choppy market regimes
-        ADAPTIVE_STATE["adx_thresh"] = min(28.0, ADAPTIVE_STATE["adx_thresh"] + 1.0)
-        ADAPTIVE_STATE["min_squeeze_bars"] = min(16, ADAPTIVE_STATE["min_squeeze_bars"] + 2)
-        ADAPTIVE_STATE["tp_mult"] = 2.8
-        ADAPTIVE_STATE["learning_status"] = f"ENHANCED: Filters Tightened (Win Rate: {win_rate*100:.1f}%, PF: {profit_factor})"
+        state["adx_thresh"] = min(30.0, state["adx_thresh"] + 1.0)
+        state["tp_mult"] = 3.0 if tf == "1h" else 2.8
+        state["learning_status"] = f"ENHANCED: Filters Tightened (Win Rate: {win_rate*100:.1f}%, PF: {profit_factor})"
     elif win_rate >= 0.55 and profit_factor >= 1.8:
-        # Optimize for more trade opportunities during strong trending regimes
-        ADAPTIVE_STATE["adx_thresh"] = max(20.0, ADAPTIVE_STATE["adx_thresh"] - 0.5)
-        ADAPTIVE_STATE["min_squeeze_bars"] = 12
-        ADAPTIVE_STATE["tp_mult"] = 2.5
-        ADAPTIVE_STATE["learning_status"] = f"ENHANCED: Momentum Optimized (Win Rate: {win_rate*100:.1f}%, PF: {profit_factor})"
+        state["adx_thresh"] = max(18.0, state["adx_thresh"] - 0.5)
+        state["learning_status"] = f"ENHANCED: Momentum Optimized (Win Rate: {win_rate*100:.1f}%, PF: {profit_factor})"
     else:
-        ADAPTIVE_STATE["learning_status"] = f"STABLE: Parameters Balanced (Win Rate: {win_rate*100:.1f}%, PF: {profit_factor})"
+        state["learning_status"] = f"STABLE: Parameters Balanced (Win Rate: {win_rate*100:.1f}%, PF: {profit_factor})"
 
-def simulate_and_update_signal_journal(df):
-    """
-    Scans historical 15m bars to log realistic signals and evaluate TP/SL resolutions.
-    """
-    global SIGNAL_JOURNAL
-    if len(SIGNAL_JOURNAL) > 0:
+def simulate_and_update_signal_journal(df, tf):
+    engine = QUANT_ENGINES[tf]
+    journal = engine["journal"]
+    state = engine["adaptive_state"]
+    
+    if len(journal) > 0:
         return
 
-    adx_thresh = ADAPTIVE_STATE["adx_thresh"]
-    tp_m = ADAPTIVE_STATE["tp_mult"]
-    sl_m = ADAPTIVE_STATE["sl_mult"]
+    adx_thresh = state["adx_thresh"]
+    tp_m = state["tp_mult"]
+    sl_m = state["sl_mult"]
+    max_hold = state["max_hold_bars"]
     
     for i in range(40, len(df) - 1):
         row = df.iloc[i]
@@ -170,12 +182,11 @@ def simulate_and_update_signal_journal(df):
             tp_p = round(entry_p + (tp_m * atr_v), 2) if sig_dir == "BULLISH" else round(entry_p - (tp_m * atr_v), 2)
             sl_p = round(entry_p - (sl_m * atr_v), 2) if sig_dir == "BULLISH" else round(entry_p + (sl_m * atr_v), 2)
             
-            # Evaluate outcome over subsequent bars
             status = "PENDING"
             exit_price = entry_p
             pnl_pct = 0.0
             
-            for j in range(i + 1, min(i + 33, len(df))):
+            for j in range(i + 1, min(i + max_hold + 1, len(df))):
                 sub_row = df.iloc[j]
                 if sig_dir == "BULLISH":
                     if sub_row["High"] >= tp_p:
@@ -192,8 +203,9 @@ def simulate_and_update_signal_journal(df):
                         status, exit_price, pnl_pct = "SL_HIT", sl_p, (entry_p - sl_p) / entry_p * 100
                         break
                         
-            SIGNAL_JOURNAL.append({
+            journal.append({
                 "timestamp": row["timestamp"],
+                "timeframe": tf.upper(),
                 "direction": sig_dir,
                 "entry": round(entry_p, 2),
                 "tp": tp_p,
@@ -203,15 +215,16 @@ def simulate_and_update_signal_journal(df):
                 "pnl_pct": round(pnl_pct, 2)
             })
 
-def generate_fallback_data(candles=250):
-    np.random.seed(42)
-    prices = 2650.0 + np.cumsum(np.random.normal(0, 3.2, candles))
-    timestamps = [f"15m-{i}" for i in range(candles)]
+def generate_fallback_data(tf="15m", candles=250):
+    np.random.seed(42 if tf == "15m" else 100)
+    vol_scale = 3.2 if tf == "15m" else 8.5
+    prices = 2650.0 + np.cumsum(np.random.normal(0, vol_scale, candles))
+    timestamps = [f"{tf}-{i}" for i in range(candles)]
     return pd.DataFrame({
         "timestamp": timestamps,
         "Open": prices,
-        "High": prices + 2.5,
-        "Low": prices - 2.5,
+        "High": prices + (vol_scale * 0.8),
+        "Low": prices - (vol_scale * 0.8),
         "Close": prices,
         "Volume": np.random.uniform(500, 5000, candles)
     })
@@ -219,12 +232,23 @@ def generate_fallback_data(candles=250):
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
-            df = fetch_15m_candles(250)
+            # Parse requested timeframe parameter from URL
+            parsed_url = urllib.parse.urlparse(self.path)
+            query_params = urllib.parse.parse_qs(parsed_url.query)
+            tf = query_params.get("tf", ["15m"])[0].lower()
+            if tf not in ["15m", "1h"]:
+                tf = "15m"
+                
+            df = fetch_candles(tf, 250)
             df = compute_quant_analytics(df)
             options = fetch_options_chain()
             
-            simulate_and_update_signal_journal(df)
-            run_adaptive_learning_engine()
+            simulate_and_update_signal_journal(df, tf)
+            run_adaptive_learning_engine(tf)
+            
+            engine = QUANT_ENGINES[tf]
+            state_data = engine["adaptive_state"]
+            journal = engine["journal"]
             
             latest = df.iloc[-1]
             spot = float(latest["Close"])
@@ -232,35 +256,36 @@ class handler(BaseHTTPRequestHandler):
             adx = float(latest["ADX"])
             squeeze = bool(latest["Squeeze_On"])
             
-            curr_adx_thresh = ADAPTIVE_STATE["adx_thresh"]
-            tp_mult = ADAPTIVE_STATE["tp_mult"]
-            sl_mult = ADAPTIVE_STATE["sl_mult"]
+            curr_adx_thresh = state_data["adx_thresh"]
+            tp_mult = state_data["tp_mult"]
+            sl_mult = state_data["sl_mult"]
+            min_squeeze = state_data["min_squeeze_bars"]
             
-            # Determine Current State
+            # State classification
             if squeeze:
-                state = "NEUTRAL VOLATILITY EXPANSION"
+                state = f"NEUTRAL VOLATILITY EXPANSION ({tf.upper()})"
             elif adx > curr_adx_thresh and latest["Volume"] > 1.15 * latest["Vol_SMA_20"]:
                 if latest["Close"] > latest["EMA_200"] and latest["Squeeze_Mom"] > 0:
-                    state = "STRONG BULLISH BREAKOUT"
+                    state = f"STRONG BULLISH BREAKOUT ({tf.upper()})"
                 elif latest["Close"] < latest["EMA_200"] and latest["Squeeze_Mom"] < 0:
-                    state = "STRONG BEARISH BREAKOUT"
+                    state = f"STRONG BEARISH BREAKOUT ({tf.upper()})"
                 else:
                     state = "NO-TRADE"
             else:
                 state = "NO-TRADE"
 
-            # Compute Execution Targets & Rationale
+            # Compute Execution Targets & Explanations
             if "BULLISH" in state:
                 entry_val = f"${spot:,.2f}"
                 tp_val = f"${spot + (atr * tp_mult):,.2f}"
                 sl_val = f"${spot - (atr * sl_mult):,.2f}"
                 
                 reason_entry = (
-                    f"15m Squeeze released upward. Spot (${spot:,.2f}) > EMA 200 (${latest['EMA_200']:,.2f}) "
-                    f"confirms macro uptrend. Volume ({latest['Volume']:,.0f}) > 1.15x SMA20. ADX ({adx:.1f}) > {curr_adx_thresh} threshold."
+                    f"[{tf.upper()} Frame] Squeeze released upward. Spot (${spot:,.2f}) > EMA 200 (${latest['EMA_200']:,.2f}) "
+                    f"confirms macro bull trend. Candle Volume ({latest['Volume']:,.0f}) > 1.15x SMA20. ADX ({adx:.1f}) > {curr_adx_thresh} threshold."
                 )
-                reason_tp = f"Set at Entry + ({tp_mult}x ATR14 = ${atr*tp_mult:.2f}). Captures explosive breakout expansion."
-                reason_sl = f"Set at Entry - ({sl_mult}x ATR14 = ${atr*sl_mult:.2f}). Protects against false volatility breakouts."
+                reason_tp = f"Set at Entry + ({tp_mult}x ATR14 = ${atr*tp_mult:.2f}). Captures explosive {tf.upper()} breakout volatility."
+                reason_sl = f"Set at Entry - ({sl_mult}x ATR14 = ${atr*sl_mult:.2f}). Protects against false breakout whipsaws."
                 
             elif "BEARISH" in state:
                 entry_val = f"${spot:,.2f}"
@@ -268,33 +293,35 @@ class handler(BaseHTTPRequestHandler):
                 sl_val = f"${spot + (atr * sl_mult):,.2f}"
                 
                 reason_entry = (
-                    f"15m Squeeze released downward. Spot (${spot:,.2f}) < EMA 200 (${latest['EMA_200']:,.2f}) "
-                    f"confirms macro downtrend. Volume ({latest['Volume']:,.0f}) > 1.15x SMA20. ADX ({adx:.1f}) > {curr_adx_thresh} threshold."
+                    f"[{tf.upper()} Frame] Squeeze released downward. Spot (${spot:,.2f}) < EMA 200 (${latest['EMA_200']:,.2f}) "
+                    f"confirms macro bear trend. Candle Volume ({latest['Volume']:,.0f}) > 1.15x SMA20. ADX ({adx:.1f}) > {curr_adx_thresh} threshold."
                 )
-                reason_tp = f"Set at Entry - ({tp_mult}x ATR14 = ${atr*tp_mult:.2f}). Captures downside volatility acceleration."
-                reason_sl = f"Set at Entry + ({sl_mult}x ATR14 = ${atr*sl_mult:.2f}). Strict stop above entry bar high."
+                reason_tp = f"Set at Entry - ({tp_mult}x ATR14 = ${atr*tp_mult:.2f}). Captures downside {tf.upper()} volatility expansion."
+                reason_sl = f"Set at Entry + ({sl_mult}x ATR14 = ${atr*sl_mult:.2f}). Strict stop above entry candle high."
                 
             elif "NEUTRAL" in state:
                 entry_val = f"${spot:,.2f}"
                 tp_val = f"${spot + (atr * tp_mult):,.2f} / ${spot - (atr * tp_mult):,.2f}"
                 sl_val = "Exit on Contraction"
                 
-                reason_entry = f"TTM Squeeze active ({int(latest['Squeeze_Duration'])} bars). Volatility compressed inside Keltner Channels."
-                reason_tp = "Symmetrical dual-target layout anticipating pending Gamma expansion."
+                duration_hrs = int(latest['Squeeze_Duration']) * (0.25 if tf == "15m" else 1.0)
+                reason_entry = f"[{tf.upper()} Frame] TTM Squeeze active ({int(latest['Squeeze_Duration'])} bars / ~{duration_hrs:.1f}h). Price compressed inside Keltner Channels."
+                reason_tp = f"Symmetrical dual-target layout anticipating pending {tf.upper()} Gamma expansion."
                 reason_sl = "Hard exit if Squeeze contracts below 1.0x ATR."
                 
             else: # NO-TRADE
                 entry_val, tp_val, sl_val = "N/A", "N/A", "N/A"
-                reason_entry = f"No active trigger. Price is choppy or ADX ({adx:.1f}) is below active adaptive threshold ({curr_adx_thresh:.1f})."
+                reason_entry = f"[{tf.upper()} Frame] No trigger. Price is choppy or ADX ({adx:.1f}) is below active {tf.upper()} threshold ({curr_adx_thresh:.1f})."
                 reason_tp = "N/A (No active position)"
                 reason_sl = "N/A (No active position)"
 
-            # Dynamic Journal Performance Statistics
-            closed = [t for t in SIGNAL_JOURNAL if t["status"] in ["TARGET_HIT", "SL_HIT"]]
+            # Performance stats
+            closed = [t for t in journal if t["status"] in ["TARGET_HIT", "SL_HIT"]]
             wins = [t for t in closed if t["status"] == "TARGET_HIT"]
             w_rate = round((len(wins) / len(closed)) * 100, 1) if closed else 0.0
             
             payload = {
+                "timeframe": tf.upper(),
                 "spot_price": spot,
                 "signal_state": state,
                 "squeeze_on": squeeze,
@@ -313,14 +340,14 @@ class handler(BaseHTTPRequestHandler):
                 },
                 "adaptive_engine": {
                     "adx_thresh": curr_adx_thresh,
-                    "min_squeeze_bars": ADAPTIVE_STATE["min_squeeze_bars"],
+                    "min_squeeze_bars": min_squeeze,
                     "tp_mult": tp_mult,
                     "sl_mult": sl_mult,
-                    "status": ADAPTIVE_STATE["learning_status"],
-                    "total_logged_signals": len(SIGNAL_JOURNAL),
+                    "status": state_data["learning_status"],
+                    "total_logged_signals": len(journal),
                     "recorded_win_rate": w_rate
                 },
-                "signal_journal": SIGNAL_JOURNAL[-15:][::-1], # Send latest 15 logged trades
+                "signal_journal": journal[-15:][::-1],
                 "series": {
                     "timestamps": df["timestamp"].tolist(),
                     "open": df["Open"].tolist(),

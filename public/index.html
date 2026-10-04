@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Crypto Directional Trades | Adaptive Quant Engine</title>
+  <title>Crypto Directional Trades | Multi-Timeframe Quant Engine</title>
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
   <style>
@@ -18,14 +18,18 @@
       --accent-red: #f23645;
       --accent-blue: #2962ff;
       --accent-gold: #f5a623;
-      --accent-purple: #9c27b0;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
     body { background-color: var(--bg-dark); color: var(--text-main); padding: 20px; }
     
-    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--card-border); padding-bottom: 16px; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--card-border); padding-bottom: 16px; flex-wrap: wrap; gap: 12px; }
     .header h1 { font-size: 1.4rem; color: var(--text-bright); font-weight: 800; }
     
+    /* Timeframe Toggle Pills */
+    .tf-toggle { display: flex; background: var(--panel-bg); border: 1px solid var(--card-border); border-radius: 20px; padding: 4px; gap: 4px; }
+    .tf-btn { background: none; border: none; color: #787b86; padding: 6px 16px; border-radius: 16px; font-size: 0.8rem; font-weight: 700; cursor: pointer; transition: all 0.2s ease; }
+    .tf-btn.active { background: var(--accent-blue); color: #fff; }
+
     /* Tabs Header */
     .tabs-nav { display: flex; gap: 12px; margin-bottom: 20px; border-bottom: 1px solid var(--card-border); }
     .tab-btn { background: none; border: none; color: #787b86; padding: 10px 18px; font-size: 0.88rem; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent; }
@@ -50,7 +54,7 @@
     .explanation-panel { background: var(--panel-bg); border: 1px solid var(--card-border); border-radius: 8px; padding: 16px; margin-bottom: 20px; }
     .explanation-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-top: 12px; }
     .expl-box { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 6px; padding: 14px; }
-    .expl-title { font-size: 0.8rem; font-weight: 700; color: var(--text-bright); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+    .expl-title { font-size: 0.8rem; font-weight: 700; color: var(--text-bright); margin-bottom: 6px; }
     .expl-text { font-size: 0.83rem; color: #a3a6b4; line-height: 1.5; }
 
     /* Tables */
@@ -65,10 +69,18 @@
 </head>
 <body>
 
-  <!-- Header -->
+  <!-- Header & Timeframe Switcher -->
   <div class="header">
-    <h1>⚡ Crypto Directional Trades (Adaptive Quant Engine)</h1>
-    <span style="font-size: 0.8rem; color: var(--accent-green); font-weight: 600;">● VERCEL LIVE API</span>
+    <div>
+      <h1>⚡ Crypto Directional Trades</h1>
+      <span style="font-size: 0.8rem; color: var(--accent-green); font-weight: 600;">● VERCEL MULTI-TIMEFRAME ENGINE</span>
+    </div>
+    
+    <!-- Timeframe Switcher Pill -->
+    <div class="tf-toggle">
+      <button class="tf-btn active" id="tf15mBtn" onclick="setTimeframe('15m')">15M Timeframe</button>
+      <button class="tf-btn" id="tf1hBtn" onclick="setTimeframe('1h')">1H Timeframe</button>
+    </div>
   </div>
 
   <!-- Navigation Tabs -->
@@ -85,18 +97,18 @@
         <div class="card-value" id="spotPrice">$0.00</div>
       </div>
       <div class="card">
-        <div class="card-title">Signal State</div>
+        <div class="card-title"><span id="tfLabelState">15M</span> Signal State</div>
         <div class="card-value" style="font-size: 0.95rem; margin-top: 6px;">
           <span class="badge badge-neutral" id="signalState">LOADING...</span>
         </div>
       </div>
       <div class="card">
-        <div class="card-title">15M Squeeze</div>
+        <div class="card-title"><span id="tfLabelSqueeze">15M</span> TTM Squeeze</div>
         <div class="card-value" id="squeezeStatus">--</div>
       </div>
       <div class="card">
-        <div class="card-title">Delta Options PCR</div>
-        <div class="card-value" id="pcrVal">0.00</div>
+        <div class="card-title">Delta Options PCR / ATR</div>
+        <div class="card-value" id="pcrAtrVal">0.00</div>
       </div>
     </div>
 
@@ -118,11 +130,11 @@
 
     <!-- Quantitative Signal Rationale Breakdown -->
     <div class="explanation-panel">
-      <h3 style="font-size: 0.95rem; color: var(--text-bright);">🧠 Quantitative Signal Rationale & Explanation</h3>
+      <h3 style="font-size: 0.95rem; color: var(--text-bright);">🧠 Quantitative Rationale (<span id="tfLabelReason">15M</span> Resolution)</h3>
       <div class="explanation-grid">
         <div class="expl-box">
           <div class="expl-title">📌 Entry Logic Justification</div>
-          <div class="expl-text" id="reasonEntry">Evaluating live market indicators...</div>
+          <div class="expl-text" id="reasonEntry">Evaluating timeframe data...</div>
         </div>
         <div class="expl-box">
           <div class="expl-title">🎯 Target Level Derivation</div>
@@ -147,15 +159,15 @@
     <!-- Adaptive Self-Enhancement Engine Status -->
     <div class="grid">
       <div class="card">
-        <div class="card-title">Adaptive Engine Status</div>
-        <div class="card-value" style="font-size: 0.9rem; color: var(--accent-green); margin-top: 8px;" id="adaptStatus">INITIALIZING...</div>
+        <div class="card-title"><span id="tfLabelAdapt">15M</span> Adaptive Status</div>
+        <div class="card-value" style="font-size: 0.88rem; color: var(--accent-green); margin-top: 8px;" id="adaptStatus">INITIALIZING...</div>
       </div>
       <div class="card">
-        <div class="card-title">Active ADX Threshold</div>
+        <div class="card-title">ADX / Min Compression</div>
         <div class="card-value" id="adaptAdx">22.0</div>
       </div>
       <div class="card">
-        <div class="card-title">Journal Win Rate</div>
+        <div class="card-title"><span id="tfLabelWin">15M</span> Journal Win Rate</div>
         <div class="card-value" style="color: var(--accent-blue);" id="adaptWinRate">0.0%</div>
       </div>
       <div class="card">
@@ -167,12 +179,13 @@
     <!-- Signal Journal History Table -->
     <div class="card" style="padding: 0; overflow: hidden;">
       <div style="padding: 16px; border-bottom: 1px solid var(--card-border); font-weight: 700; color: var(--text-bright);">
-        📖 Real-Time Signal Recording & Outcome Journal
+        📖 Real-Time Signal Journal (<span id="tfLabelJournal">15M</span> Frame)
       </div>
       <table class="data-table">
         <thead>
           <tr>
             <th>Timestamp</th>
+            <th>Timeframe</th>
             <th>Direction</th>
             <th>Entry ($)</th>
             <th>Take Profit ($)</th>
@@ -183,13 +196,31 @@
           </tr>
         </thead>
         <tbody id="journalTableBody">
-          <tr><td colspan="8" style="text-align: center; color: #787b86;">Loading recorded signal history...</td></tr>
+          <tr><td colspan="9" style="text-align: center; color: #787b86;">Loading recorded signal history...</td></tr>
         </tbody>
       </table>
     </div>
   </div>
 
   <script>
+    let currentTimeframe = '15m';
+
+    function setTimeframe(tf) {
+      if (currentTimeframe === tf) return;
+      currentTimeframe = tf;
+
+      document.getElementById('tf15mBtn').className = `tf-btn ${tf === '15m' ? 'active' : ''}`;
+      document.getElementById('tf1hBtn').className = `tf-btn ${tf === '1h' ? 'active' : ''}`;
+
+      // Update UI timeframe labels
+      const upper = tf.toUpperCase();
+      ['tfLabelState', 'tfLabelSqueeze', 'tfLabelReason', 'tfLabelAdapt', 'tfLabelWin', 'tfLabelJournal'].forEach(id => {
+        document.getElementById(id).innerText = upper;
+      });
+
+      fetchQuantData();
+    }
+
     function switchTab(tabId) {
       document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
       document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
@@ -201,7 +232,7 @@
 
     async function fetchQuantData() {
       try {
-        const res = await fetch('/api');
+        const res = await fetch(`/api?tf=${currentTimeframe}`);
         const data = await res.json();
         
         // Tab 1 Metrics
@@ -216,7 +247,7 @@
 
         document.getElementById('squeezeStatus').innerText = data.squeeze_on ? 'ON (Compressed)' : 'OFF (Expanded)';
         document.getElementById('squeezeStatus').style.color = data.squeeze_on ? '#f5a623' : '#089981';
-        document.getElementById('pcrVal').innerText = data.pcr;
+        document.getElementById('pcrAtrVal').innerText = `${data.pcr} / $${data.atr.toFixed(2)}`;
 
         document.getElementById('entryVal').innerText = data.targets.entry;
         document.getElementById('tpVal').innerText = data.targets.target;
@@ -235,7 +266,7 @@
         // Tab 2 Adaptive Engine Metrics
         const eng = data.adaptive_engine;
         document.getElementById('adaptStatus').innerText = eng.status;
-        document.getElementById('adaptAdx').innerText = eng.adx_thresh.toFixed(1);
+        document.getElementById('adaptAdx').innerText = `${eng.adx_thresh.toFixed(1)} / ${eng.min_squeeze_bars}b`;
         document.getElementById('adaptWinRate').innerText = `${eng.recorded_win_rate.toFixed(1)}%`;
         document.getElementById('adaptLoggedCount').innerText = eng.total_logged_signals;
 
@@ -244,7 +275,7 @@
         tbody.innerHTML = '';
         
         if (data.signal_journal.length === 0) {
-          tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: #787b86;">No signals recorded yet.</td></tr>`;
+          tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: #787b86;">No signals recorded for ${currentTimeframe.toUpperCase()} timeframe yet.</td></tr>`;
         } else {
           data.signal_journal.forEach(row => {
             let statusClass = 'status-pending';
@@ -254,6 +285,7 @@
             const tr = document.createElement('tr');
             tr.innerHTML = `
               <td>${row.timestamp}</td>
+              <td style="color: var(--accent-blue); font-weight: 700;">${row.timeframe}</td>
               <td style="color: ${row.direction === 'BULLISH' ? '#089981' : '#f23645'}; font-weight: 700;">${row.direction}</td>
               <td>$${row.entry.toFixed(2)}</td>
               <td>$${row.tp.toFixed(2)}</td>
@@ -268,7 +300,7 @@
 
         // Render Chart
         const s = data.series;
-        const traceCandles = { x: s.timestamps, open: s.open, high: s.high, low: s.low, close: s.close, type: 'candlestick', name: 'ETH 15M' };
+        const traceCandles = { x: s.timestamps, open: s.open, high: s.high, low: s.low, close: s.close, type: 'candlestick', name: `ETH ${currentTimeframe.toUpperCase()}` };
         const traceEMA20 = { x: s.timestamps, y: s.ema_20, mode: 'lines', name: 'EMA 20', line: { color: '#2962ff' } };
         const traceEMA200 = { x: s.timestamps, y: s.ema_200, mode: 'lines', name: 'EMA 200', line: { color: '#9c27b0' } };
         const traceMom = { x: s.timestamps, y: s.momentum, type: 'bar', name: 'Momentum', xaxis: 'x', yaxis: 'y2', marker: { color: s.momentum.map(v => v > 0 ? '#089981' : '#f23645') } };
