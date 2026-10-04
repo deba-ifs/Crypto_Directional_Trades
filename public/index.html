@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ETH 15M Quant Engine | Delta Exchange India</title>
+  <title>Crypto Directional Trades | Delta Exchange India</title>
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
   <style>
@@ -23,20 +23,22 @@
     .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
     .header h1 { font-size: 1.4rem; color: var(--text-bright); font-weight: 800; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px; }
-    .card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 8px; padding: 16px; }
+    .card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 8px; padding: 16px; transition: opacity 0.3s ease; }
     .card-title { font-size: 0.75rem; color: #787b86; text-transform: uppercase; font-weight: 600; }
-    .card-value { font-size: 1.5rem; color: var(--text-bright); font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 4px; }
+    .card-value { font-size: 1.4rem; color: var(--text-bright); font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 4px; }
     .badge { padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 700; }
     .badge-bull { background: rgba(8, 153, 129, 0.2); color: var(--accent-green); border: 1px solid var(--accent-green); }
     .badge-bear { background: rgba(242, 54, 69, 0.2); color: var(--accent-red); border: 1px solid var(--accent-red); }
     .badge-neutral { background: rgba(41, 98, 255, 0.2); color: var(--accent-blue); border: 1px solid var(--accent-blue); }
+    .badge-notrade { background: rgba(120, 123, 134, 0.2); color: #787b86; border: 1px solid #787b86; }
     .chart-panel { background: var(--panel-bg); border: 1px solid var(--card-border); border-radius: 8px; padding: 16px; }
+    .notes-box { background: var(--panel-bg); border: 1px solid var(--card-border); border-left: 4px solid var(--accent-blue); padding: 12px 16px; border-radius: 4px; margin-bottom: 20px; font-size: 0.85rem; }
   </style>
 </head>
 <body>
   <div class="header">
-    <h1>⚡ ETH 15M Volatility Breakout Analytics</h1>
-    <span style="font-size: 0.8rem; color: var(--accent-green); font-weight: 600;">● VERCEL SERVERLESS LIVE</span>
+    <h1>⚡ Crypto Directional Trades (ETH 15M)</h1>
+    <span style="font-size: 0.8rem; color: var(--accent-green); font-weight: 600;">● VERCEL LIVE API</span>
   </div>
 
   <div class="grid">
@@ -46,7 +48,7 @@
     </div>
     <div class="card">
       <div class="card-title">Signal State</div>
-      <div class="card-value" style="font-size: 1rem; margin-top: 6px;">
+      <div class="card-value" style="font-size: 0.95rem; margin-top: 6px;">
         <span class="badge badge-neutral" id="signalState">LOADING...</span>
       </div>
     </div>
@@ -61,22 +63,26 @@
   </div>
 
   <div class="grid">
-    <div class="card">
-      <div class="card-title">Exact Entry</div>
-      <div class="card-value" style="color: var(--accent-blue);" id="entryVal">$0.00</div>
+    <div class="card" id="cardEntry">
+      <div class="card-title">Exact Entry Level</div>
+      <div class="card-value" style="color: var(--accent-blue);" id="entryVal">N/A</div>
     </div>
-    <div class="card">
-      <div class="card-title">Strict Take-Profit</div>
-      <div class="card-value" style="color: var(--accent-green);" id="tpVal">$0.00</div>
+    <div class="card" id="cardTp">
+      <div class="card-title">Strict Take-Profit Target</div>
+      <div class="card-value" style="color: var(--accent-green);" id="tpVal">N/A</div>
     </div>
-    <div class="card">
-      <div class="card-title">Strict Stop-Loss</div>
-      <div class="card-value" style="color: var(--accent-red);" id="slVal">$0.00</div>
+    <div class="card" id="cardSl">
+      <div class="card-title">Strict Stop-Loss Level</div>
+      <div class="card-value" style="color: var(--accent-red);" id="slVal">N/A</div>
     </div>
   </div>
 
+  <div class="notes-box" id="quantNotes">
+    <strong>Execution Rule:</strong> Stand by for real-time signal calculations...
+  </div>
+
   <div class="chart-panel">
-    <div id="chart" style="width: 100%; height: 550px;"></div>
+    <div id="chart" style="width: 100%; height: 520px;"></div>
   </div>
 
   <script>
@@ -89,17 +95,29 @@
         
         const stateEl = document.getElementById('signalState');
         stateEl.innerText = data.signal_state;
-        stateEl.className = `badge ${data.signal_state.includes('BULLISH') ? 'badge-bull' : data.signal_state.includes('BEARISH') ? 'badge-bear' : 'badge-neutral'}`;
         
+        if (data.signal_state.includes('BULLISH')) stateEl.className = 'badge badge-bull';
+        else if (data.signal_state.includes('BEARISH')) stateEl.className = 'badge badge-bear';
+        else if (data.signal_state.includes('NEUTRAL')) stateEl.className = 'badge badge-neutral';
+        else stateEl.className = 'badge badge-notrade';
+
         document.getElementById('squeezeStatus').innerText = data.squeeze_on ? 'ON (Compressed)' : 'OFF (Expanded)';
         document.getElementById('squeezeStatus').style.color = data.squeeze_on ? '#f5a623' : '#089981';
         document.getElementById('pcrVal').innerText = data.pcr;
 
-        document.getElementById('entryVal').innerText = `$${data.targets.entry.toFixed(2)}`;
-        document.getElementById('tpVal').innerText = `$${data.targets.target.toFixed(2)}`;
-        document.getElementById('slVal').innerText = `$${data.targets.sl.toFixed(2)}`;
+        // Targets & Entry
+        document.getElementById('entryVal').innerText = data.targets.entry;
+        document.getElementById('tpVal').innerText = data.targets.target;
+        document.getElementById('slVal').innerText = data.targets.sl;
+        document.getElementById('quantNotes').innerHTML = `<strong>Execution Rule:</strong> ${data.targets.notes}`;
 
-        // Render Plotly Chart
+        // Dim target cards if NO-TRADE
+        const isNoTrade = data.signal_state === 'NO-TRADE';
+        ['cardEntry', 'cardTp', 'cardSl'].forEach(id => {
+          document.getElementById(id).style.opacity = isNoTrade ? '0.35' : '1.0';
+        });
+
+        // Render Chart
         const s = data.series;
         const traceCandles = { x: s.timestamps, open: s.open, high: s.high, low: s.low, close: s.close, type: 'candlestick', name: 'ETH 15M' };
         const traceEMA20 = { x: s.timestamps, y: s.ema_20, mode: 'lines', name: 'EMA 20', line: { color: '#2962ff' } };
@@ -123,7 +141,7 @@
     }
 
     fetchQuantData();
-    setInterval(fetchQuantData, 30000); // Auto refresh every 30 seconds
+    setInterval(fetchQuantData, 30000);
   </script>
 </body>
 </html>

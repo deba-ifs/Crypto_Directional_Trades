@@ -13,7 +13,7 @@ def fetch_15m_candles(limit=200):
     start = end - (limit * 900)
     
     params = {"symbol": "ETHUSD", "resolution": "15m", "start": start, "end": end}
-    headers = {"User-Agent": "ETHQuantVercel/2.0"}
+    headers = {"User-Agent": "CryptoDirectionalTrades/2.0"}
     
     try:
         res = requests.get(url, params=params, headers=headers, timeout=8)
@@ -31,7 +31,7 @@ def fetch_15m_candles(limit=200):
 
 def fetch_options_chain():
     url = f"{DELTA_BASE_URL}/v2/tickers"
-    headers = {"User-Agent": "ETHQuantVercel/2.0"}
+    headers = {"User-Agent": "CryptoDirectionalTrades/2.0"}
     try:
         res = requests.get(url, headers=headers, timeout=8)
         data = res.json()
@@ -116,10 +116,10 @@ class handler(BaseHTTPRequestHandler):
             adx = float(latest["ADX"])
             squeeze = bool(latest["Squeeze_On"])
             
-            # Determine State
+            # Determine Signal State
             if squeeze:
                 state = "NEUTRAL VOLATILITY EXPANSION"
-            elif adx > 22.0 and latest["Volume"] > 1.1 * latest["Vol_SMA_20"]:
+            elif adx > 22.0 and latest["Volume"] > 1.15 * latest["Vol_SMA_20"]:
                 if latest["Close"] > latest["EMA_200"] and latest["Squeeze_Mom"] > 0:
                     state = "STRONG BULLISH BREAKOUT"
                 elif latest["Close"] < latest["EMA_200"] and latest["Squeeze_Mom"] < 0:
@@ -128,6 +128,28 @@ class handler(BaseHTTPRequestHandler):
                     state = "NO-TRADE"
             else:
                 state = "NO-TRADE"
+
+            # Strict Target Logic: Only supply numbers when an active signal exists
+            if "BULLISH" in state:
+                entry_val = f"${spot:,.2f}"
+                target_val = f"${spot + (atr * 2.5):,.2f}"
+                sl_val = f"${spot - (atr * 1.0):,.2f}"
+                strat_notes = f"Bull Call Spread recommended. Target set at 2.5x ATR (${atr*2.5:.2f})."
+            elif "BEARISH" in state:
+                entry_val = f"${spot:,.2f}"
+                target_val = f"${spot - (atr * 2.5):,.2f}"
+                sl_val = f"${spot + (atr * 1.0):,.2f}"
+                strat_notes = f"Bear Put Spread recommended. Target set at 2.5x ATR (${atr*2.5:.2f})."
+            elif "NEUTRAL" in state:
+                entry_val = f"${spot:,.2f}"
+                target_val = f"${spot + (atr * 2.5):,.2f} / ${spot - (atr * 2.5):,.2f}"
+                sl_val = "Exit on Contraction"
+                strat_notes = "Squeeze active. Consider Long Strangle ahead of implied volatility expansion."
+            else: # NO-TRADE
+                entry_val = "N/A"
+                target_val = "N/A"
+                sl_val = "N/A"
+                strat_notes = "Market is choppy or ADX/Volume filters unconfirmed. Stand aside to preserve capital."
                 
             response_payload = {
                 "spot_price": spot,
@@ -138,9 +160,10 @@ class handler(BaseHTTPRequestHandler):
                 "total_oi": options["total_oi"],
                 "atr": round(atr, 2),
                 "targets": {
-                    "entry": spot,
-                    "target": round(spot + (atr * 2.5), 2) if "BULLISH" in state else round(spot - (atr * 2.5), 2),
-                    "sl": round(spot - (atr * 1.0), 2) if "BULLISH" in state else round(spot + (atr * 1.0), 2)
+                    "entry": entry_val,
+                    "target": target_val,
+                    "sl": sl_val,
+                    "notes": strat_notes
                 },
                 "series": {
                     "timestamps": df["timestamp"].tolist(),
