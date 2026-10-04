@@ -8,27 +8,29 @@ import numpy as np
 
 DELTA_BASE_URL = "https://api.india.delta.exchange"
 
-# Isolated adaptive states and journals for each timeframe
+# Persistent Quant State (Isolated by Timeframe)
 QUANT_ENGINES = {
     "15m": {
         "journal": [],
+        "active_trade": None,  # Stores currently open position
         "adaptive_state": {
             "adx_thresh": 22.0,
-            "min_squeeze_bars": 12, # 3 hours
+            "min_squeeze_bars": 12,
             "tp_mult": 2.5,
             "sl_mult": 1.0,
-            "max_hold_bars": 32, # 8 hours
+            "max_hold_bars": 32,
             "learning_status": "INITIALIZED (15M Baseline: ADX 22.0)"
         }
     },
     "1h": {
         "journal": [],
+        "active_trade": None,
         "adaptive_state": {
             "adx_thresh": 25.0,
-            "min_squeeze_bars": 5, # 5 hours
+            "min_squeeze_bars": 5,
             "tp_mult": 2.8,
             "sl_mult": 1.0,
-            "max_hold_bars": 24, # 24 hours
+            "max_hold_bars": 24,
             "learning_status": "INITIALIZED (1H Baseline: ADX 25.0)"
         }
     }
@@ -41,7 +43,7 @@ def fetch_candles(tf="15m", limit=250):
     start = end - (limit * step)
     
     params = {"symbol": "ETHUSD", "resolution": tf, "start": start, "end": end}
-    headers = {"User-Agent": "CryptoDirectionalTrades/4.0"}
+    headers = {"User-Agent": "CryptoDirectionalTrades/5.0"}
     
     try:
         res = requests.get(url, params=params, headers=headers, timeout=8)
@@ -59,7 +61,7 @@ def fetch_candles(tf="15m", limit=250):
 
 def fetch_options_chain():
     url = f"{DELTA_BASE_URL}/v2/tickers"
-    headers = {"User-Agent": "CryptoDirectionalTrades/4.0"}
+    headers = {"User-Agent": "CryptoDirectionalTrades/5.0"}
     try:
         res = requests.get(url, headers=headers, timeout=8)
         data = res.json()
@@ -128,8 +130,8 @@ def run_adaptive_learning_engine(tf):
     
     closed_trades = [t for t in journal if t["status"] in ["TARGET_HIT", "SL_HIT"]]
     
-    if len(closed_trades) < 5:
-        state["learning_status"] = f"ACCUMULATING DATA ({len(closed_trades)}/5 Min Trades)"
+    if len(closed_trades) < 3:
+        state["learning_status"] = f"ACCUMULATING DATA ({len(closed_trades)}/3 Min Trades)"
         return
         
     wins = [t for t in closed_trades if t["status"] == "TARGET_HIT"]
@@ -141,28 +143,24 @@ def run_adaptive_learning_engine(tf):
     
     if win_rate < 0.40 or profit_factor < 1.1:
         state["adx_thresh"] = min(30.0, state["adx_thresh"] + 1.0)
-        state["tp_mult"] = 3.0 if tf == "1h" else 2.8
-        state["learning_status"] = f"ENHANCED: Filters Tightened (Win Rate: {win_rate*100:.1f}%, PF: {profit_factor})"
+        state["learning_status"] = f"ENHANCED: ADX Filter Raised ({state['adx_thresh']:.1f}) | WR: {win_rate*100:.1f}%"
     elif win_rate >= 0.55 and profit_factor >= 1.8:
         state["adx_thresh"] = max(18.0, state["adx_thresh"] - 0.5)
-        state["learning_status"] = f"ENHANCED: Momentum Optimized (Win Rate: {win_rate*100:.1f}%, PF: {profit_factor})"
+        state["learning_status"] = f"ENHANCED: Momentum Optimized ({state['adx_thresh']:.1f}) | WR: {win_rate*100:.1f}%"
     else:
-        state["learning_status"] = f"STABLE: Parameters Balanced (Win Rate: {win_rate*100:.1f}%, PF: {profit_factor})"
+        state["learning_status"] = f"STABLE: Parameters Balanced | WR: {win_rate*100:.1f}%, PF: {profit_factor}"
 
-def simulate_and_update_signal_journal(df, tf):
+def seed_journal_from_history_if_empty(df, tf):
+    """Seed baseline historical trades if journal is completely empty on startup."""
     engine = QUANT_ENGINES[tf]
-    journal = engine["journal"]
-    state = engine["adaptive_state"]
-    
-    if len(journal) > 0:
+    if len(engine["journal"]) > 0:
         return
 
-    adx_thresh = state["adx_thresh"]
-    tp_m = state["tp_mult"]
-    sl_m = state["sl_mult"]
-    max_hold = state["max_hold_bars"]
+    adx_thresh = engine["adaptive_state"]["adx_thresh"]
+    tp_m = engine["adaptive_state"]["tp_mult"]
+    sl_m = engine["adaptive_state"]["sl_mult"]
     
-    for i in range(40, len(df) - 1):
+    for i in range(40, len(df) - 10):
         row = df.iloc[i]
         prev_row = df.iloc[i-1]
         
@@ -182,28 +180,27 @@ def simulate_and_update_signal_journal(df, tf):
             tp_p = round(entry_p + (tp_m * atr_v), 2) if sig_dir == "BULLISH" else round(entry_p - (tp_m * atr_v), 2)
             sl_p = round(entry_p - (sl_m * atr_v), 2) if sig_dir == "BULLISH" else round(entry_p + (sl_m * atr_v), 2)
             
-            status = "PENDING"
-            exit_price = entry_p
-            pnl_pct = 0.0
+            status = "SL_HIT"
+            exit_price = sl_p
+            pnl_pct = - (sl_m * atr_v) / entry_p * 100
             
-            for j in range(i + 1, min(i + max_hold + 1, len(df))):
+            for j in range(i + 1, min(i + 24, len(df))):
                 sub_row = df.iloc[j]
                 if sig_dir == "BULLISH":
                     if sub_row["High"] >= tp_p:
                         status, exit_price, pnl_pct = "TARGET_HIT", tp_p, (tp_p - entry_p) / entry_p * 100
                         break
                     elif sub_row["Low"] <= sl_p:
-                        status, exit_price, pnl_pct = "SL_HIT", sl_p, (sl_p - entry_p) / entry_p * 100
                         break
                 else:
                     if sub_row["Low"] <= tp_p:
                         status, exit_price, pnl_pct = "TARGET_HIT", tp_p, (entry_p - tp_p) / entry_p * 100
                         break
                     elif sub_row["High"] >= sl_p:
-                        status, exit_price, pnl_pct = "SL_HIT", sl_p, (entry_p - sl_p) / entry_p * 100
                         break
                         
-            journal.append({
+            engine["journal"].append({
+                "id": f"hist_{i}",
                 "timestamp": row["timestamp"],
                 "timeframe": tf.upper(),
                 "direction": sig_dir,
@@ -214,6 +211,160 @@ def simulate_and_update_signal_journal(df, tf):
                 "exit_price": round(exit_price, 2),
                 "pnl_pct": round(pnl_pct, 2)
             })
+
+def process_live_active_trade(df, tf):
+    """
+    Manages active position state. Locks TP/SL and evaluates live exit conditions bar-by-bar.
+    """
+    engine = QUANT_ENGINES[tf]
+    journal = engine["journal"]
+    state_data = engine["adaptive_state"]
+    active = engine["active_trade"]
+    
+    latest = df.iloc[-1]
+    prev_latest = df.iloc[-2]
+    spot = float(latest["Close"])
+    atr = float(latest["ATR"])
+    adx = float(latest["ADX"])
+    squeeze = bool(latest["Squeeze_On"])
+    
+    adx_thresh = state_data["adx_thresh"]
+    tp_mult = state_data["tp_mult"]
+    sl_mult = state_data["sl_mult"]
+
+    # 1. Evaluate Active Position Exit (If a trade is open)
+    if active is not None:
+        direction = active["direction"]
+        tp_price = active["tp"]
+        sl_price = active["sl"]
+        entry_price = active["entry"]
+        
+        curr_high = float(latest["High"])
+        curr_low = float(latest["Low"])
+        
+        trade_closed = False
+        exit_status = None
+        exit_price = spot
+        pnl = 0.0
+
+        if direction == "BULLISH":
+            if curr_high >= tp_price:
+                trade_closed, exit_status, exit_price = True, "TARGET_HIT", tp_price
+                pnl = (tp_price - entry_price) / entry_price * 100
+            elif curr_low <= sl_price:
+                trade_closed, exit_status, exit_price = True, "SL_HIT", sl_price
+                pnl = (sl_price - entry_price) / entry_price * 100
+        else: # BEARISH
+            if curr_low <= tp_price:
+                trade_closed, exit_status, exit_price = True, "TARGET_HIT", tp_price
+                pnl = (entry_price - tp_price) / entry_price * 100
+            elif curr_high >= sl_price:
+                trade_closed, exit_status, exit_price = True, "SL_HIT", sl_price
+                pnl = (entry_price - sl_price) / entry_price * 100
+
+        if trade_closed:
+            # Update position in Journal
+            active["status"] = exit_status
+            active["exit_price"] = round(exit_price, 2)
+            active["pnl_pct"] = round(pnl, 2)
+            
+            # Update journal list entry
+            for idx, item in enumerate(journal):
+                if item.get("id") == active["id"]:
+                    journal[idx] = active
+                    break
+                    
+            engine["active_trade"] = None
+            run_adaptive_learning_engine(tf)
+            
+            return {
+                "signal_state": "NO-TRADE",
+                "targets": {"entry": "N/A", "target": "N/A", "sl": "N/A"},
+                "explanation": {
+                    "entry": f"Trade closed: {exit_status} at ${exit_price:,.2f} ({pnl:+.2f}%). Stand by for next trigger.",
+                    "tp": "N/A", "sl": "N/A"
+                }
+            }
+        else:
+            # Active Position is STILL OPEN -> Display LOCKED Targets
+            return {
+                "signal_state": f"ACTIVE POSITION ({direction})",
+                "targets": {
+                    "entry": f"${entry_price:,.2f} (LOCKED)",
+                    "target": f"${tp_price:,.2f} (LOCKED)",
+                    "sl": f"${sl_price:,.2f} (LOCKED)"
+                },
+                "explanation": {
+                    "entry": f"Active {direction} trade locked at ${entry_price:,.2f}. Monitoring live bar High/Low.",
+                    "tp": f"Fixed Target locked at ${tp_price:,.2f} (+{tp_mult:.1f}x ATR).",
+                    "sl": f"Fixed Stop Loss locked at ${sl_price:,.2f} (-{sl_mult:.1f}x ATR)."
+                }
+            }
+
+    # 2. If NO active position, check if a NEW signal triggers
+    sq_release = (prev_latest["Squeeze_On"] == True) and (squeeze == False)
+    vol_surge = latest["Volume"] >= 1.15 * latest["Vol_SMA_20"]
+    
+    new_dir = None
+    if sq_release and vol_surge and adx >= adx_thresh:
+        if latest["Close"] > latest["EMA_200"] and latest["Squeeze_Mom"] > 0:
+            new_dir = "BULLISH"
+        elif latest["Close"] < latest["EMA_200"] and latest["Squeeze_Mom"] < 0:
+            new_dir = "BEARISH"
+
+    if new_dir:
+        entry_price = spot
+        tp_price = round(entry_price + (tp_mult * atr), 2) if new_dir == "BULLISH" else round(entry_price - (tp_mult * atr), 2)
+        sl_price = round(entry_price - (sl_mult * atr), 2) if new_dir == "BULLISH" else round(entry_price + (sl_mult * atr), 2)
+        
+        trade_id = f"live_{int(time.time())}"
+        new_trade = {
+            "id": trade_id,
+            "timestamp": latest["timestamp"],
+            "timeframe": tf.upper(),
+            "direction": new_dir,
+            "entry": round(entry_price, 2),
+            "tp": tp_price,
+            "sl": sl_price,
+            "status": "OPEN",
+            "exit_price": 0.0,
+            "pnl_pct": 0.0
+        }
+        
+        engine["active_trade"] = new_trade
+        journal.append(new_trade)
+        
+        return {
+            "signal_state": f"STRONG {new_dir} BREAKOUT ({tf.upper()})",
+            "targets": {
+                "entry": f"${entry_price:,.2f} (LOCKED)",
+                "target": f"${tp_price:,.2f} (LOCKED)",
+                "sl": f"${sl_price:,.2f} (LOCKED)"
+            },
+            "explanation": {
+                "entry": f"New {new_dir} breakout triggered at ${entry_price:,.2f}. Levels locked for position duration.",
+                "tp": f"Target locked at Entry ± {tp_mult:.1f}x ATR (${tp_price:,.2f}).",
+                "sl": f"Stop Loss locked at Entry ∓ {sl_mult:.1f}x ATR (${sl_price:,.2f})."
+            }
+        }
+
+    # 3. Squeeze compressed or No trade trigger
+    if squeeze:
+        state_str = f"NEUTRAL VOLATILITY EXPANSION ({tf.upper()})"
+        exp_entry = f"TTM Squeeze active ({int(latest['Squeeze_Duration'])} bars). Price compressing."
+    else:
+        state_str = "NO-TRADE"
+        exp_entry = f"No active trigger. Price choppy or ADX ({adx:.1f}) < Threshold ({adx_thresh:.1f})."
+
+    return {
+        "signal_state": state_str,
+        "targets": {"entry": "N/A", "target": "N/A", "sl": "N/A"},
+        "explanation": {
+            "entry": exp_entry,
+            "tp": "N/A (No position open)",
+            "sl": "N/A (No position open)"
+        }
+    }
 
 def generate_fallback_data(tf="15m", candles=250):
     np.random.seed(42 if tf == "15m" else 100)
@@ -232,7 +383,6 @@ def generate_fallback_data(tf="15m", candles=250):
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
-            # Parse requested timeframe parameter from URL
             parsed_url = urllib.parse.urlparse(self.path)
             query_params = urllib.parse.parse_qs(parsed_url.query)
             tf = query_params.get("tf", ["15m"])[0].lower()
@@ -243,8 +393,8 @@ class handler(BaseHTTPRequestHandler):
             df = compute_quant_analytics(df)
             options = fetch_options_chain()
             
-            simulate_and_update_signal_journal(df, tf)
-            run_adaptive_learning_engine(tf)
+            seed_journal_from_history_if_empty(df, tf)
+            trade_payload = process_live_active_trade(df, tf)
             
             engine = QUANT_ENGINES[tf]
             state_data = engine["adaptive_state"]
@@ -256,66 +406,6 @@ class handler(BaseHTTPRequestHandler):
             adx = float(latest["ADX"])
             squeeze = bool(latest["Squeeze_On"])
             
-            curr_adx_thresh = state_data["adx_thresh"]
-            tp_mult = state_data["tp_mult"]
-            sl_mult = state_data["sl_mult"]
-            min_squeeze = state_data["min_squeeze_bars"]
-            
-            # State classification
-            if squeeze:
-                state = f"NEUTRAL VOLATILITY EXPANSION ({tf.upper()})"
-            elif adx > curr_adx_thresh and latest["Volume"] > 1.15 * latest["Vol_SMA_20"]:
-                if latest["Close"] > latest["EMA_200"] and latest["Squeeze_Mom"] > 0:
-                    state = f"STRONG BULLISH BREAKOUT ({tf.upper()})"
-                elif latest["Close"] < latest["EMA_200"] and latest["Squeeze_Mom"] < 0:
-                    state = f"STRONG BEARISH BREAKOUT ({tf.upper()})"
-                else:
-                    state = "NO-TRADE"
-            else:
-                state = "NO-TRADE"
-
-            # Compute Execution Targets & Explanations
-            if "BULLISH" in state:
-                entry_val = f"${spot:,.2f}"
-                tp_val = f"${spot + (atr * tp_mult):,.2f}"
-                sl_val = f"${spot - (atr * sl_mult):,.2f}"
-                
-                reason_entry = (
-                    f"[{tf.upper()} Frame] Squeeze released upward. Spot (${spot:,.2f}) > EMA 200 (${latest['EMA_200']:,.2f}) "
-                    f"confirms macro bull trend. Candle Volume ({latest['Volume']:,.0f}) > 1.15x SMA20. ADX ({adx:.1f}) > {curr_adx_thresh} threshold."
-                )
-                reason_tp = f"Set at Entry + ({tp_mult}x ATR14 = ${atr*tp_mult:.2f}). Captures explosive {tf.upper()} breakout volatility."
-                reason_sl = f"Set at Entry - ({sl_mult}x ATR14 = ${atr*sl_mult:.2f}). Protects against false breakout whipsaws."
-                
-            elif "BEARISH" in state:
-                entry_val = f"${spot:,.2f}"
-                tp_val = f"${spot - (atr * tp_mult):,.2f}"
-                sl_val = f"${spot + (atr * sl_mult):,.2f}"
-                
-                reason_entry = (
-                    f"[{tf.upper()} Frame] Squeeze released downward. Spot (${spot:,.2f}) < EMA 200 (${latest['EMA_200']:,.2f}) "
-                    f"confirms macro bear trend. Candle Volume ({latest['Volume']:,.0f}) > 1.15x SMA20. ADX ({adx:.1f}) > {curr_adx_thresh} threshold."
-                )
-                reason_tp = f"Set at Entry - ({tp_mult}x ATR14 = ${atr*tp_mult:.2f}). Captures downside {tf.upper()} volatility expansion."
-                reason_sl = f"Set at Entry + ({sl_mult}x ATR14 = ${atr*sl_mult:.2f}). Strict stop above entry candle high."
-                
-            elif "NEUTRAL" in state:
-                entry_val = f"${spot:,.2f}"
-                tp_val = f"${spot + (atr * tp_mult):,.2f} / ${spot - (atr * tp_mult):,.2f}"
-                sl_val = "Exit on Contraction"
-                
-                duration_hrs = int(latest['Squeeze_Duration']) * (0.25 if tf == "15m" else 1.0)
-                reason_entry = f"[{tf.upper()} Frame] TTM Squeeze active ({int(latest['Squeeze_Duration'])} bars / ~{duration_hrs:.1f}h). Price compressed inside Keltner Channels."
-                reason_tp = f"Symmetrical dual-target layout anticipating pending {tf.upper()} Gamma expansion."
-                reason_sl = "Hard exit if Squeeze contracts below 1.0x ATR."
-                
-            else: # NO-TRADE
-                entry_val, tp_val, sl_val = "N/A", "N/A", "N/A"
-                reason_entry = f"[{tf.upper()} Frame] No trigger. Price is choppy or ADX ({adx:.1f}) is below active {tf.upper()} threshold ({curr_adx_thresh:.1f})."
-                reason_tp = "N/A (No active position)"
-                reason_sl = "N/A (No active position)"
-
-            # Performance stats
             closed = [t for t in journal if t["status"] in ["TARGET_HIT", "SL_HIT"]]
             wins = [t for t in closed if t["status"] == "TARGET_HIT"]
             w_rate = round((len(wins) / len(closed)) * 100, 1) if closed else 0.0
@@ -323,31 +413,23 @@ class handler(BaseHTTPRequestHandler):
             payload = {
                 "timeframe": tf.upper(),
                 "spot_price": spot,
-                "signal_state": state,
+                "signal_state": trade_payload["signal_state"],
                 "squeeze_on": squeeze,
                 "adx": round(adx, 1),
                 "pcr": options["pcr_oi"],
                 "atr": round(atr, 2),
-                "targets": {
-                    "entry": entry_val,
-                    "target": tp_val,
-                    "sl": sl_val
-                },
-                "explanation": {
-                    "entry": reason_entry,
-                    "tp": reason_tp,
-                    "sl": reason_sl
-                },
+                "targets": trade_payload["targets"],
+                "explanation": trade_payload["explanation"],
                 "adaptive_engine": {
-                    "adx_thresh": curr_adx_thresh,
-                    "min_squeeze_bars": min_squeeze,
-                    "tp_mult": tp_mult,
-                    "sl_mult": sl_mult,
+                    "adx_thresh": state_data["adx_thresh"],
+                    "min_squeeze_bars": state_data["min_squeeze_bars"],
+                    "tp_mult": state_data["tp_mult"],
+                    "sl_mult": state_data["sl_mult"],
                     "status": state_data["learning_status"],
                     "total_logged_signals": len(journal),
                     "recorded_win_rate": w_rate
                 },
-                "signal_journal": journal[-15:][::-1],
+                "signal_journal": journal[-20:][::-1], # Send latest 20 trades
                 "series": {
                     "timestamps": df["timestamp"].tolist(),
                     "open": df["Open"].tolist(),

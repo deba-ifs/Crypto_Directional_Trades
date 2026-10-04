@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Crypto Directional Trades | Multi-Timeframe Quant Engine</title>
+  <title>Crypto Directional Trades | Adaptive Quant Engine</title>
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
   <style>
@@ -25,46 +25,40 @@
     .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--card-border); padding-bottom: 16px; flex-wrap: wrap; gap: 12px; }
     .header h1 { font-size: 1.4rem; color: var(--text-bright); font-weight: 800; }
     
-    /* Timeframe Toggle Pills */
     .tf-toggle { display: flex; background: var(--panel-bg); border: 1px solid var(--card-border); border-radius: 20px; padding: 4px; gap: 4px; }
     .tf-btn { background: none; border: none; color: #787b86; padding: 6px 16px; border-radius: 16px; font-size: 0.8rem; font-weight: 700; cursor: pointer; transition: all 0.2s ease; }
     .tf-btn.active { background: var(--accent-blue); color: #fff; }
 
-    /* Tabs Header */
     .tabs-nav { display: flex; gap: 12px; margin-bottom: 20px; border-bottom: 1px solid var(--card-border); }
     .tab-btn { background: none; border: none; color: #787b86; padding: 10px 18px; font-size: 0.88rem; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent; }
     .tab-btn.active { color: var(--accent-blue); border-bottom-color: var(--accent-blue); }
     .tab-content { display: none; }
     .tab-content.active { display: block; }
 
-    /* Grids & Cards */
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px; }
     .card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 8px; padding: 16px; }
     .card-title { font-size: 0.75rem; color: #787b86; text-transform: uppercase; font-weight: 600; }
-    .card-value { font-size: 1.4rem; color: var(--text-bright); font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 4px; }
+    .card-value { font-size: 1.35rem; color: var(--text-bright); font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 4px; }
     
-    /* Badges */
     .badge { padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 700; }
     .badge-bull { background: rgba(8, 153, 129, 0.2); color: var(--accent-green); border: 1px solid var(--accent-green); }
     .badge-bear { background: rgba(242, 54, 69, 0.2); color: var(--accent-red); border: 1px solid var(--accent-red); }
     .badge-neutral { background: rgba(41, 98, 255, 0.2); color: var(--accent-blue); border: 1px solid var(--accent-blue); }
     .badge-notrade { background: rgba(120, 123, 134, 0.2); color: #787b86; border: 1px solid #787b86; }
 
-    /* Explanation Section */
     .explanation-panel { background: var(--panel-bg); border: 1px solid var(--card-border); border-radius: 8px; padding: 16px; margin-bottom: 20px; }
     .explanation-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-top: 12px; }
     .expl-box { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 6px; padding: 14px; }
     .expl-title { font-size: 0.8rem; font-weight: 700; color: var(--text-bright); margin-bottom: 6px; }
     .expl-text { font-size: 0.83rem; color: #a3a6b4; line-height: 1.5; }
 
-    /* Tables */
     .data-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left; }
     .data-table th { background: var(--card-bg); color: #787b86; padding: 12px 14px; font-weight: 600; border-bottom: 1px solid var(--card-border); }
     .data-table td { padding: 12px 14px; border-bottom: 1px solid var(--card-border); font-family: 'JetBrains Mono', monospace; }
     
     .status-hit { color: var(--accent-green); font-weight: 700; }
     .status-sl { color: var(--accent-red); font-weight: 700; }
-    .status-pending { color: var(--accent-gold); font-weight: 700; }
+    .status-open { color: var(--accent-gold); font-weight: 700; }
   </style>
 </head>
 <body>
@@ -73,10 +67,9 @@
   <div class="header">
     <div>
       <h1>⚡ Crypto Directional Trades</h1>
-      <span style="font-size: 0.8rem; color: var(--accent-green); font-weight: 600;">● VERCEL MULTI-TIMEFRAME ENGINE</span>
+      <span style="font-size: 0.8rem; color: var(--accent-green); font-weight: 600;">● FIXED TARGET ENGINE</span>
     </div>
     
-    <!-- Timeframe Switcher Pill -->
     <div class="tf-toggle">
       <button class="tf-btn active" id="tf15mBtn" onclick="setTimeframe('15m')">15M Timeframe</button>
       <button class="tf-btn" id="tf1hBtn" onclick="setTimeframe('1h')">1H Timeframe</button>
@@ -128,20 +121,20 @@
       </div>
     </div>
 
-    <!-- Quantitative Signal Rationale Breakdown -->
+    <!-- Quantitative Rationale -->
     <div class="explanation-panel">
-      <h3 style="font-size: 0.95rem; color: var(--text-bright);">🧠 Quantitative Rationale (<span id="tfLabelReason">15M</span> Resolution)</h3>
+      <h3 style="font-size: 0.95rem; color: var(--text-bright);">🧠 Quantitative Rationale (<span id="tfLabelReason">15M</span> Frame)</h3>
       <div class="explanation-grid">
         <div class="expl-box">
-          <div class="expl-title">📌 Entry Logic Justification</div>
-          <div class="expl-text" id="reasonEntry">Evaluating timeframe data...</div>
+          <div class="expl-title">📌 Entry Justification</div>
+          <div class="expl-text" id="reasonEntry">Evaluating live timeframe data...</div>
         </div>
         <div class="expl-box">
-          <div class="expl-title">🎯 Target Level Derivation</div>
+          <div class="expl-title">🎯 Target Derivation</div>
           <div class="expl-text" id="reasonTp">Evaluating volatility target formula...</div>
         </div>
         <div class="expl-box">
-          <div class="expl-title">🛑 Stop-Loss Level Derivation</div>
+          <div class="expl-title">🛑 Stop-Loss Derivation</div>
           <div class="expl-text" id="reasonSl">Evaluating risk boundaries...</div>
         </div>
       </div>
@@ -155,12 +148,10 @@
 
   <!-- TAB 2: SIGNAL JOURNAL & ADAPTIVE LEARNING -->
   <div id="tab2" class="tab-content">
-    
-    <!-- Adaptive Self-Enhancement Engine Status -->
     <div class="grid">
       <div class="card">
-        <div class="card-title"><span id="tfLabelAdapt">15M</span> Adaptive Status</div>
-        <div class="card-value" style="font-size: 0.88rem; color: var(--accent-green); margin-top: 8px;" id="adaptStatus">INITIALIZING...</div>
+        <div class="card-title"><span id="tfLabelAdapt">15M</span> Adaptive Engine Status</div>
+        <div class="card-value" style="font-size: 0.85rem; color: var(--accent-green); margin-top: 8px;" id="adaptStatus">INITIALIZING...</div>
       </div>
       <div class="card">
         <div class="card-title">ADX / Min Compression</div>
@@ -176,7 +167,7 @@
       </div>
     </div>
 
-    <!-- Signal Journal History Table -->
+    <!-- Signal Journal Table -->
     <div class="card" style="padding: 0; overflow: hidden;">
       <div style="padding: 16px; border-bottom: 1px solid var(--card-border); font-weight: 700; color: var(--text-bright);">
         📖 Real-Time Signal Journal (<span id="tfLabelJournal">15M</span> Frame)
@@ -185,7 +176,7 @@
         <thead>
           <tr>
             <th>Timestamp</th>
-            <th>Timeframe</th>
+            <th>TF</th>
             <th>Direction</th>
             <th>Entry ($)</th>
             <th>Take Profit ($)</th>
@@ -196,7 +187,7 @@
           </tr>
         </thead>
         <tbody id="journalTableBody">
-          <tr><td colspan="9" style="text-align: center; color: #787b86;">Loading recorded signal history...</td></tr>
+          <tr><td colspan="9" style="text-align: center; color: #787b86;">Loading signal journal history...</td></tr>
         </tbody>
       </table>
     </div>
@@ -212,7 +203,6 @@
       document.getElementById('tf15mBtn').className = `tf-btn ${tf === '15m' ? 'active' : ''}`;
       document.getElementById('tf1hBtn').className = `tf-btn ${tf === '1h' ? 'active' : ''}`;
 
-      // Update UI timeframe labels
       const upper = tf.toUpperCase();
       ['tfLabelState', 'tfLabelSqueeze', 'tfLabelReason', 'tfLabelAdapt', 'tfLabelWin', 'tfLabelJournal'].forEach(id => {
         document.getElementById(id).innerText = upper;
@@ -242,7 +232,7 @@
         
         if (data.signal_state.includes('BULLISH')) stateEl.className = 'badge badge-bull';
         else if (data.signal_state.includes('BEARISH')) stateEl.className = 'badge badge-bear';
-        else if (data.signal_state.includes('NEUTRAL')) stateEl.className = 'badge badge-neutral';
+        else if (data.signal_state.includes('ACTIVE')) stateEl.className = 'badge badge-neutral';
         else stateEl.className = 'badge badge-notrade';
 
         document.getElementById('squeezeStatus').innerText = data.squeeze_on ? 'ON (Compressed)' : 'OFF (Expanded)';
@@ -258,27 +248,26 @@
           document.getElementById(id).style.opacity = isNoTrade ? '0.35' : '1.0';
         });
 
-        // Explanation text
         document.getElementById('reasonEntry').innerText = data.explanation.entry;
         document.getElementById('reasonTp').innerText = data.explanation.tp;
         document.getElementById('reasonSl').innerText = data.explanation.sl;
 
-        // Tab 2 Adaptive Engine Metrics
+        // Tab 2 Metrics
         const eng = data.adaptive_engine;
         document.getElementById('adaptStatus').innerText = eng.status;
         document.getElementById('adaptAdx').innerText = `${eng.adx_thresh.toFixed(1)} / ${eng.min_squeeze_bars}b`;
         document.getElementById('adaptWinRate').innerText = `${eng.recorded_win_rate.toFixed(1)}%`;
         document.getElementById('adaptLoggedCount').innerText = eng.total_logged_signals;
 
-        // Populate Journal Table
+        // Journal Table
         const tbody = document.getElementById('journalTableBody');
         tbody.innerHTML = '';
         
         if (data.signal_journal.length === 0) {
-          tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: #787b86;">No signals recorded for ${currentTimeframe.toUpperCase()} timeframe yet.</td></tr>`;
+          tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: #787b86;">No logged signals for ${currentTimeframe.toUpperCase()} timeframe yet.</td></tr>`;
         } else {
           data.signal_journal.forEach(row => {
-            let statusClass = 'status-pending';
+            let statusClass = 'status-open';
             if (row.status === 'TARGET_HIT') statusClass = 'status-hit';
             if (row.status === 'SL_HIT') statusClass = 'status-sl';
             
@@ -291,8 +280,8 @@
               <td>$${row.tp.toFixed(2)}</td>
               <td>$${row.sl.toFixed(2)}</td>
               <td class="${statusClass}">${row.status}</td>
-              <td>$${row.exit_price.toFixed(2)}</td>
-              <td style="color: ${row.pnl_pct >= 0 ? '#089981' : '#f23645'}; font-weight: 700;">${row.pnl_pct >= 0 ? '+' : ''}${row.pnl_pct.toFixed(2)}%</td>
+              <td>$${row.exit_price ? row.exit_price.toFixed(2) : '--'}</td>
+              <td style="color: ${row.pnl_pct >= 0 ? '#089981' : '#f23645'}; font-weight: 700;">${row.pnl_pct ? (row.pnl_pct >= 0 ? '+' : '') + row.pnl_pct.toFixed(2) + '%' : '--'}</td>
             `;
             tbody.appendChild(tr);
           });
