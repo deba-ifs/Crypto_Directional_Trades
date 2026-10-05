@@ -1,37 +1,154 @@
 from http.server import BaseHTTPRequestHandler
 import json
 import time
+import os
+import smtplib
 import requests
 import urllib.parse
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 import pandas as pd
 import numpy as np
 
 DELTA_BASE_URL = "https://api.india.delta.exchange"
 
+# Configurations
 TF_CONFIGS = {
     "15m": {
-        "adx_thresh": 16.0,
+        "adx_thresh": 15.0,
         "min_squeeze_bars": 4,
-        "cmf_thresh": 0.03,       # Institutional accumulation threshold
-        "rsi_max_long": 68.0,     # Max RSI for Long entries
-        "rsi_min_short": 32.0,    # Min RSI for Short entries
+        "vol_mult": 1.05,
         "tp_mult": 2.5,
         "sl_mult": 1.0,
-        "be_trigger_mult": 1.0,   # Move to Breakeven when price hits +1.0x ATR
         "max_hold_bars": 32
     },
     "1h": {
         "adx_thresh": 18.0,
         "min_squeeze_bars": 3,
-        "cmf_thresh": 0.04,
-        "rsi_max_long": 66.0,
-        "rsi_min_short": 34.0,
+        "vol_mult": 1.08,
         "tp_mult": 2.8,
         "sl_mult": 1.0,
-        "be_trigger_mult": 1.2,
         "max_hold_bars": 24
     }
 }
+
+# Track notified trade IDs across Vercel function lifetime to avoid duplicate alerts
+NOTIFIED_ENTRIES = set()
+NOTIFIED_EXITS = set()
+
+# =========================================================
+# NOTIFICATION DISPATCHERS (EMAIL & WHATSAPP)
+# =========================================================
+
+def send_email_alert(subject: str, body: str):
+    """Sends action item email via SMTP."""
+    smtp_server = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
+    smtp_port = int(os.environ.get("SMTP_PORT", 587))
+    smtp_user = os.environ.get("SMTP_USER", "")
+    smtp_pass = os.environ.get("SMTP_PASS", "")
+    target_email = os.environ.get("TARGET_EMAIL", "debashish@ifinstrats.com")
+
+    if not smtp_user or not smtp_pass:
+        print("[Notifier] Email credentials missing in Environment Variables. Skipping email.")
+        return
+
+    try:
+        msg = MIMEMultipart()
+        msg["From"] = smtp_user
+        msg["To"] = target_email
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "plain"))
+
+        server = smtplib.SMTP(smtp_server, smtp_port, timeout=8)
+        server.starttls()
+        server.login(smtp_user, smtp_pass)
+        server.send_message(msg)
+        server.quit()
+        print(f"[Notifier] Email successfully sent to {target_email}")
+    except Exception as e:
+        print(f"[Notifier Error] Email failed: {e}")
+
+
+def send_whatsapp_alert(message_body: str):
+    """Sends action item WhatsApp message via Twilio API."""
+    account_sid = os.environ.get("TWILIO_SID", "")
+    auth_token = os.environ.get("TWILIO_TOKEN", "")
+    from_number = os.environ.get("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")
+    to_number = os.environ.get("TARGET_WHATSAPP", "whatsapp:+919611900668")
+
+    if not account_sid or not auth_token:
+        print("[Notifier] Twilio credentials missing in Environment Variables. Skipping WhatsApp.")
+        return
+
+    try:
+        url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json"
+        payload = {
+            "From": from_number,
+            "To": to_number,
+            "Body": message_body
+        }
+        res = requests.post(url, data=payload, auth=(account_sid, auth_token), timeout=8)
+        if res.status_code in [200, 201]:
+            print(f"[Notifier] WhatsApp successfully sent to {to_number}")
+        else:
+            print(f"[Notifier Error] Twilio WhatsApp API returned: {res.text}")
+    except Exception as e:
+        print(f"[Notifier Error] WhatsApp failed: {e}")
+
+
+def dispatch_action_notifications(event_type: str, trade: dict):
+    """Formats and dispatches Email + WhatsApp notifications."""
+    trade_id = trade.get("timestamp")
+    tf = trade.get("timeframe", "15M")
+    direction = trade.get("direction", "LONG")
+    entry = trade.get("entry", 0.0)
+    tp = trade.get("tp", 0.0)
+    sl = trade.get("sl", 0.0)
+    
+    if event_type == "ENTRY" and trade_id not in NOTIFIED_ENTRIES:
+        NOTIFIED_ENTRIES.add(trade_id)
+        
+        subject = f"🚨 ACTION REQUIRED: New ETH {tf} {direction} Trade Triggered!"
+        body = (
+            f"ACTION ITEM - NEW TRADE SIGNAL DISPATCHED\n"
+            f"-----------------------------------------\n"
+            f"Timeframe: {tf}\n"
+            f"Direction: {direction}\n"
+            f"Entry Price: ${entry:,.2f}\n"
+            f"Take Profit (Target): ${tp:,.2f}\n"
+            f"Stop Loss (SL): ${sl:,.2f}\n"
+            f"Trigger Time: {trade_id}\n\n"
+            f"Action Item: Execute designated Delta Exchange option structure (Call/Put Spread)."
+        )
+        send_email_alert(subject, body)
+        send_whatsapp_alert(body)
+
+    elif event_type in ["TARGET_HIT", "SL_HIT", "BREAKEVEN_EXIT"] and trade_id not in NOTIFIED_EXITS:
+        NOTIFIED_EXITS.add(trade_id)
+        
+        status_label = trade.get("status", event_type)
+        exit_p = trade.get("exit_price", 0.0)
+        pnl = trade.get("pnl_pct", 0.0)
+        
+        subject = f"🎯 ACTION REQUIRED: ETH {tf} Position Closed ({status_label})"
+        body = (
+            f"ACTION ITEM - POSITION CLOSED NOTIFICATION\n"
+            f"-----------------------------------------\n"
+            f"Timeframe: {tf}\n"
+            f"Direction: {direction}\n"
+            f"Original Entry: ${entry:,.2f}\n"
+            f"Exit Status: {status_label}\n"
+            f"Exit Price: ${exit_p:,.2f}\n"
+            f"PnL Realized: {pnl:+.2f}%\n"
+            f"Exit Time: {trade.get('exit_time', trade_id)}\n\n"
+            f"Action Item: Close active option position on Delta Exchange."
+        )
+        send_email_alert(subject, body)
+        send_whatsapp_alert(body)
+
+# =========================================================
+# DATA FETCHING & QUANT ANALYTICS
+# =========================================================
 
 def fetch_candles_ist(tf="15m", limit=500):
     url = f"{DELTA_BASE_URL}/v2/history/candles"
@@ -84,20 +201,16 @@ def fetch_options_chain():
 
 def compute_quant_analytics(df):
     d = df.copy()
-    
-    # 1. EMAs
     d["EMA_20"] = d["Close"].ewm(span=20, adjust=False).mean()
     d["EMA_50"] = d["Close"].ewm(span=50, adjust=False).mean()
     d["EMA_200"] = d["Close"].ewm(span=200, adjust=False).mean()
     
-    # 2. ATR & ATR Expansion Slope (3-bar delta)
     tr0 = abs(d["High"] - d["Low"])
     tr1 = abs(d["High"] - d["Close"].shift(1))
     tr2 = abs(d["Low"] - d["Close"].shift(1))
     d["ATR"] = pd.concat([tr0, tr1, tr2], axis=1).max(axis=1).rolling(14).mean().bfill()
     d["ATR_Slope"] = d["ATR"] - d["ATR"].shift(3)
     
-    # 3. Bollinger Bands & Keltner Channels
     bb_mid = d["Close"].rolling(20).mean()
     bb_std = d["Close"].rolling(20).std()
     d["BB_Upper"] = bb_mid + (2.0 * bb_std)
@@ -109,24 +222,20 @@ def compute_quant_analytics(df):
     sq_series = d["Squeeze_On"]
     d["Squeeze_Duration"] = sq_series.groupby((~sq_series).cumsum()).cumsum()
     
-    # 4. Squeeze Momentum
     hh = d["High"].rolling(20).max()
     ll = d["Low"].rolling(20).min()
     d["Squeeze_Mom"] = d["Close"] - (((hh + ll) / 2 + d["EMA_20"]) / 2)
     
-    # 5. Chaikin Money Flow (CMF 20)
     mf_mult = ((d["Close"] - d["Low"]) - (d["High"] - d["Close"])) / (d["High"] - d["Low"] + 1e-9)
     mf_vol = mf_mult * d["Volume"]
     d["CMF"] = mf_vol.rolling(20).sum() / (d["Volume"].rolling(20).sum() + 1e-9)
     
-    # 6. RSI (14)
     delta = d["Close"].diff()
     gain = (delta.where(delta > 0, 0)).rolling(14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
     rs = gain / (loss + 1e-9)
     d["RSI"] = 100 - (100 / (1 + rs))
     
-    # 7. ADX (14)
     up = d["High"].diff()
     down = -d["Low"].diff()
     p_dm = np.where((up > down) & (up > 0), up, 0.0)
@@ -142,18 +251,12 @@ def compute_quant_analytics(df):
     return d.bfill().ffill()
 
 def process_enhanced_signals_and_journal(df, tf):
-    """
-    Evaluates trades using CMF, RSI, ATR Slope, and Breakeven Trailing Stops.
-    """
     cfg = TF_CONFIGS[tf]
     adx_thresh = cfg["adx_thresh"]
     min_squeeze = cfg["min_squeeze_bars"]
-    cmf_thresh = cfg["cmf_thresh"]
-    rsi_max_long = cfg["rsi_max_long"]
-    rsi_min_short = cfg["rsi_min_short"]
+    vol_mult = cfg["vol_mult"]
     tp_mult = cfg["tp_mult"]
     sl_mult = cfg["sl_mult"]
-    be_trigger = cfg["be_trigger_mult"]
     max_hold = cfg["max_hold_bars"]
     
     journal = []
@@ -166,23 +269,20 @@ def process_enhanced_signals_and_journal(df, tf):
         prev_row = df.iloc[i-1]
         prev_row2 = df.iloc[i-2] if i >= 2 else prev_row
         
-        # 1. Squeeze Release Condition (2-bar window)
         sq_release = (prev_row["Squeeze_On"] == True and row["Squeeze_On"] == False) or \
                      (prev_row2["Squeeze_On"] == True and prev_row["Squeeze_On"] == False and row["Squeeze_On"] == False)
                      
         valid_duration = (prev_row["Squeeze_Duration"] >= min_squeeze) or (prev_row2["Squeeze_Duration"] >= min_squeeze)
-        vol_surge = row["Volume"] >= 1.05 * row["Vol_SMA_20"]
-        atr_expanding = row["ATR_Slope"] >= -0.2  # ATR is stable or growing
+        vol_surge = row["Volume"] >= vol_mult * row["Vol_SMA_20"]
+        atr_expanding = row["ATR_Slope"] >= -0.2
         
         sig_dir = None
         if sq_release and valid_duration and vol_surge and atr_expanding and row["ADX"] >= adx_thresh:
-            # Bullish Multi-Filter Check
             if (row["Close"] > row["EMA_200"]) and (row["EMA_20"] > row["EMA_50"]) and \
-               (row["Squeeze_Mom"] > 0) and (row["CMF"] >= cmf_thresh) and (35.0 <= row["RSI"] <= rsi_max_long):
+               (row["Squeeze_Mom"] > 0) and (row["CMF"] >= 0.03) and (35.0 <= row["RSI"] <= 68.0):
                 sig_dir = "BULLISH"
-            # Bearish Multi-Filter Check
             elif (row["Close"] < row["EMA_200"]) and (row["EMA_20"] < row["EMA_50"]) and \
-                 (row["Squeeze_Mom"] < 0) and (row["CMF"] <= -cmf_thresh) and (rsi_min_short <= row["RSI"] <= 65.0):
+                 (row["Squeeze_Mom"] < 0) and (row["CMF"] <= -0.03) and (32.0 <= row["RSI"] <= 65.0):
                 sig_dir = "BEARISH"
                 
         if sig_dir:
@@ -193,7 +293,7 @@ def process_enhanced_signals_and_journal(df, tf):
             tp_p = round(entry_p + (tp_mult * atr_v), 2) if sig_dir == "BULLISH" else round(entry_p - (tp_mult * atr_v), 2)
             sl_p = round(entry_p - (sl_mult * atr_v), 2) if sig_dir == "BULLISH" else round(entry_p + (sl_mult * atr_v), 2)
             be_price = round(entry_p + (0.1 * atr_v), 2) if sig_dir == "BULLISH" else round(entry_p - (0.1 * atr_v), 2)
-            be_threshold = entry_p + (be_trigger * atr_v) if sig_dir == "BULLISH" else entry_p - (be_trigger * atr_v)
+            be_threshold = entry_p + (1.0 * atr_v) if sig_dir == "BULLISH" else entry_p - (1.0 * atr_v)
             
             status = "OPEN"
             exit_p = entry_p
@@ -208,10 +308,9 @@ def process_enhanced_signals_and_journal(df, tf):
                 last_bar_evaluated = j
                 
                 if sig_dir == "BULLISH":
-                    # Check if Breakeven trailing stop should trigger
                     if sub_row["High"] >= be_threshold and not be_activated:
                         be_activated = True
-                        sl_p = be_price  # Move Stop-Loss to Breakeven (+0.1x ATR)
+                        sl_p = be_price
                         
                     if sub_row["High"] >= tp_p:
                         status, exit_p = "TARGET_HIT", tp_p
@@ -256,10 +355,14 @@ def process_enhanced_signals_and_journal(df, tf):
             
             journal.append(trade_obj)
             
+            # TRIGGER ENTRY / EXIT NOTIFICATIONS IF LAST BAR BREACHED
             if status == "OPEN" and last_bar_evaluated >= n_bars - 1:
                 active_position = trade_obj
+                dispatch_action_notifications("ENTRY", trade_obj)
+            elif status in ["TARGET_HIT", "SL_HIT", "BREAKEVEN_EXIT"] and j >= n_bars - 2:
+                dispatch_action_notifications(status, trade_obj)
                 
-            i = j  # Fast-forward
+            i = j
         else:
             i += 1
 
@@ -360,7 +463,6 @@ class handler(BaseHTTPRequestHandler):
                 },
                 "adaptive_engine": {
                     "adx_thresh": adx_thresh,
-                    "cmf_thresh": cfg["cmf_thresh"],
                     "min_squeeze_bars": cfg["min_squeeze_bars"],
                     "tp_mult": tp_mult,
                     "sl_mult": sl_mult,
