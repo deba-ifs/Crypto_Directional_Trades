@@ -3,9 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Crypto Directional Trades | Multi-Timeframe Quant Engine</title>
+  <title>Crypto Directional Trades | IST Quant Engine</title>
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-  <!-- MathJax for rendering LaTeX formulas -->
   <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
   <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
@@ -64,8 +63,7 @@
     .status-sl { color: var(--accent-red); font-weight: 700; }
     .status-open { color: var(--accent-gold); font-weight: 700; }
 
-    /* Execution Plan & Math Tab Styles */
-    .section-header { font-size: 1.1rem; font-weight: 800; color: var(--text-bright); margin: 24px 0 12px 0; display: flex; align-items: center; gap: 8px; }
+    .section-header { font-size: 1.1rem; font-weight: 800; color: var(--text-bright); margin: 24px 0 12px 0; }
     .flow-step { background: var(--card-bg); border: 1px solid var(--card-border); border-left: 4px solid var(--accent-blue); padding: 14px 18px; border-radius: 6px; margin-bottom: 12px; }
     .flow-step-title { font-size: 0.88rem; font-weight: 700; color: var(--text-bright); margin-bottom: 4px; }
     .flow-step-desc { font-size: 0.83rem; color: #a3a6b4; }
@@ -79,7 +77,7 @@
   <div class="header">
     <div>
       <h1>⚡ Crypto Directional Trades</h1>
-      <span style="font-size: 0.8rem; color: var(--accent-green); font-weight: 600;">● MULTI-TIMEFRAME QUANT ENGINE</span>
+      <span style="font-size: 0.8rem; color: var(--accent-green); font-weight: 600;">● IST TIMEZONE (UTC + 5:30)</span>
     </div>
     
     <div class="tf-toggle">
@@ -92,7 +90,7 @@
   <div class="tabs-nav">
     <button class="tab-btn active" onclick="switchTab('tab1')">📊 Tab 1: Live Signals & Explanation</button>
     <button class="tab-btn" onclick="switchTab('tab2')">📖 Tab 2: Signal Journal & Adaptive Learning</button>
-    <button class="tab-btn" onclick="switchTab('tab3')">📐 Tab 3: Execution Plan & Mathematical Formulas</button>
+    <button class="tab-btn" onclick="switchTab('tab3')">📐 Tab 3: Execution Plan & Formulas</button>
   </div>
 
   <!-- TAB 1: LIVE SIGNALS & EXPLANATION -->
@@ -136,7 +134,7 @@
 
     <!-- Quantitative Rationale -->
     <div class="explanation-panel">
-      <h3 style="font-size: 0.95rem; color: var(--text-bright);">🧠 Quantitative Rationale (<span id="tfLabelReason">15M</span> Frame)</h3>
+      <h3 style="font-size: 0.95rem; color: var(--text-bright);">🧠 Quantitative Rationale (<span id="tfLabelReason">15M</span> Frame IST)</h3>
       <div class="explanation-grid">
         <div class="expl-box">
           <div class="expl-title">📌 Entry Justification</div>
@@ -183,12 +181,12 @@
     <!-- Signal Journal Table -->
     <div class="card" style="padding: 0; overflow: hidden;">
       <div style="padding: 16px; border-bottom: 1px solid var(--card-border); font-weight: 700; color: var(--text-bright);">
-        📖 Real-Time Signal Journal (<span id="tfLabelJournal">15M</span> Frame)
+        📖 Real-Time Signal Journal (<span id="tfLabelJournal">15M</span> Frame IST)
       </div>
       <table class="data-table">
         <thead>
           <tr>
-            <th>Timestamp</th>
+            <th>Entry Time (IST)</th>
             <th>TF</th>
             <th>Direction</th>
             <th>Entry ($)</th>
@@ -208,14 +206,12 @@
 
   <!-- TAB 3: EXECUTION PLAN & MATHEMATICAL FORMULAS -->
   <div id="tab3" class="tab-content">
-    
-    <!-- Section 1: Execution Architecture & Pipeline -->
     <div class="section-header">⚙️ System Execution Architecture & Pipeline</div>
     
     <div class="flow-step" style="border-left-color: var(--accent-blue);">
-      <div class="flow-step-title">Step 1: REST Ingestion & Multi-Timeframe Parsing</div>
+      <div class="flow-step-title">Step 1: REST Ingestion & IST Timezone Normalization</div>
       <div class="flow-step-desc">
-        Queries Delta Exchange India REST endpoints every 30 seconds for live OHLCV candles (`/v2/history/candles`) and active options chain metrics (`/v2/tickers`). Data is routed dynamically based on the selected timeframe toggle (15-Minute or 1-Hour).
+        Queries Delta Exchange India REST endpoints every 30 seconds for live OHLCV candles (`/v2/history/candles`). Epoch UTC timestamps are converted to IST (UTC + 5:30).
       </div>
     </div>
 
@@ -229,25 +225,17 @@
     <div class="flow-step" style="border-left-color: var(--accent-gold);">
       <div class="flow-step-title">Step 3: Signal Classification & Directional Filtering</div>
       <div class="flow-step-desc">
-        Evaluates strict breakout rules: Squeeze release trigger, Volume surge ($\ge 1.15 \times \text{SMA}_{20}$), Trend alignment ($\text{Price} > \text{EMA}_{200}$ for Long, $\text{Price} < \text{EMA}_{200}$ for Short), and Momentum positivity ($\text{Squeeze\_Mom} > 0$).
+        Evaluates breakout rules: Squeeze release trigger, Volume surge ($\ge 1.15 \times \text{SMA}_{20}$), Trend alignment ($\text{Price} > \text{EMA}_{200}$ for Long, $\text{Price} < \text{EMA}_{200}$ for Short), and Momentum positivity ($\text{Squeeze\_Mom} > 0$).
       </div>
     </div>
 
     <div class="flow-step" style="border-left-color: var(--accent-green);">
-      <div class="flow-step-title">Step 4: Fixed-Target Position Locking & State Machine</div>
+      <div class="flow-step-title">Step 4: Fixed-Target Position Locking Engine</div>
       <div class="flow-step-desc">
         Upon trade trigger, entry price, stop-loss, and take-profit targets are locked in state memory. Levels remain frozen across API refreshes until intra-candle price action hits TP or SL.
       </div>
     </div>
 
-    <div class="flow-step" style="border-left-color: var(--accent-red);">
-      <div class="flow-step-title">Step 5: Adaptive Self-Enhancement Feedback Loop</div>
-      <div class="flow-step-desc">
-        When an active trade closes, its outcome ($\text{TARGET\_HIT}$ vs $\text{SL\_HIT}$) is logged in the Signal Journal. The adaptive engine automatically tunes the minimum ADX threshold and ATR multipliers based on rolling win rate and profit factor.
-      </div>
-    </div>
-
-    <!-- Section 2: Data Sources Registry -->
     <div class="section-header">🌐 Connected API Endpoint Registry</div>
     <div class="card" style="padding: 0; overflow: hidden; margin-bottom: 24px;">
       <table class="data-table">
@@ -257,94 +245,52 @@
             <th>Source / Provider</th>
             <th>REST Endpoint</th>
             <th>Fetch Frequency</th>
-            <th>Parameters Harvested</th>
+            <th>Timezone</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td>15M OHLCV Candles</td>
             <td>Delta Exchange India</td>
-            <td>`/v2/history/candles`</td>
-            <td>Every 30 Seconds</td>
-            <td>Open, High, Low, Close, Volume, Timestamp (15m)</td>
+            <td>`/v2/history/candles?resolution=15m`</td>
+            <td>30 Seconds</td>
+            <td>IST (UTC + 5:30)</td>
           </tr>
           <tr>
             <td>1H OHLCV Candles</td>
             <td>Delta Exchange India</td>
-            <td>`/v2/history/candles`</td>
-            <td>Every 30 Seconds</td>
-            <td>Open, High, Low, Close, Volume, Timestamp (1h)</td>
+            <td>`/v2/history/candles?resolution=1h`</td>
+            <td>30 Seconds</td>
+            <td>IST (UTC + 5:30)</td>
           </tr>
           <tr>
             <td>Options Chain & OI</td>
             <td>Delta Exchange India</td>
             <td>`/v2/tickers`</td>
-            <td>Every 30 Seconds</td>
-            <td>Call/Put Open Interest, Call/Put Volume, PCR Ratio</td>
+            <td>30 Seconds</td>
+            <td>IST (UTC + 5:30)</td>
           </tr>
         </tbody>
       </table>
     </div>
 
-    <!-- Section 3: Mathematical Formulas & Exact Derivations -->
-    <div class="section-header">🧮 Mathematical Formulas & Quantitative Derivations</div>
+    <div class="section-header">🧮 Mathematical Formulas & Derivations</div>
 
     <div class="math-card">
       <h4 style="color: var(--text-bright); margin-bottom: 6px;">1. TTM Volatility Squeeze Condition</h4>
-      <p style="font-size: 0.85rem; color: #a3a6b4;">Detects energy buildup when Bollinger Bands compress inside Keltner Channels.</p>
       <div class="math-formula">
-        $$\text{BB}_{\text{Upper/Lower}} = \mu_{20} \pm 2.0 \cdot \sigma_{20}$$
-        $$\text{KC}_{\text{Upper/Lower}} = \text{EMA}_{20} \pm 1.5 \cdot \text{ATR}_{14}$$
+        $$\text{BB}_{\text{Upper/Lower}} = \mu_{20} \pm 2.0 \cdot \sigma_{20}, \quad \text{KC}_{\text{Upper/Lower}} = \text{EMA}_{20} \pm 1.5 \cdot \text{ATR}_{14}$$
         $$\text{Squeeze\_On} = (\text{BB}_{\text{Lower}} > \text{KC}_{\text{Lower}}) \land (\text{BB}_{\text{Upper}} < \text{KC}_{\text{Upper}})$$
       </div>
     </div>
 
     <div class="math-card">
-      <h4 style="color: var(--text-bright); margin-bottom: 6px;">2. Average True Range ($\text{ATR}_{14}$)</h4>
-      <p style="font-size: 0.85rem; color: #a3a6b4;">Measures market volatility to scale stop-loss and take-profit targets dynamically.</p>
+      <h4 style="color: var(--text-bright); margin-bottom: 6px;">2. Fixed Entry, Take-Profit Target, and Stop-Loss Levels</h4>
       <div class="math-formula">
-        $$\text{TR}_t = \max\left(H_t - L_t, \, \vert{}H_t - C_{t-1}\vert{}, \, \vert{}L_t - C_{t-1}\vert{}\right)$$
-        $$\text{ATR}_{14} = \frac{1}{14} \sum_{i=0}^{13} \text{TR}_{t-i}$$
+        $$\text{Target}_{\text{Bullish}} = \text{Entry} + \left(2.5 \cdot \text{ATR}_{14}\right), \quad \text{SL}_{\text{Bullish}} = \text{Entry} - \left(1.0 \cdot \text{ATR}_{14}\right)$$
+        $$\text{Target}_{\text{Bearish}} = \text{Entry} - \left(2.5 \cdot \text{ATR}_{14}\right), \quad \text{SL}_{\text{Bearish}} = \text{Entry} + \left(1.0 \cdot \text{ATR}_{14}\right)$$
       </div>
     </div>
-
-    <div class="math-card">
-      <h4 style="color: var(--text-bright); margin-bottom: 6px;">3. TTM Momentum Histogram</h4>
-      <p style="font-size: 0.85rem; color: #a3a6b4;">Calculates linear regression delta against the midpoint of price extremes and EMA 20.</p>
-      <div class="math-formula">
-        $$\Delta_{\text{Mid}} = \frac{\max(H_{20}) + \min(L_{20})}{2}$$
-        $$\text{Squeeze\_Mom} = C_t - \left( \frac{\Delta_{\text{Mid}} + \text{EMA}_{20}}{2} \right)$$
-      </div>
-    </div>
-
-    <div class="math-card">
-      <h4 style="color: var(--text-bright); margin-bottom: 6px;">4. Average Directional Index ($\text{ADX}_{14}$)</h4>
-      <p style="font-size: 0.85rem; color: #a3a6b4;">Filters out non-trending market chop by requiring trend intensity to breach adaptive threshold $\theta_{\text{ADX}}$.</p>
-      <div class="math-formula">
-        $$+\text{DM} = H_t - H_{t-1}, \quad -\text{DM} = L_{t-1} - L_t$$
-        $$+\text{DI}_{14} = 100 \cdot \frac{\text{EMA}_{14}(+\text{DM})}{\text{ATR}_{14}}, \quad -\text{DI}_{14} = 100 \cdot \frac{\text{EMA}_{14}(-\text{DM})}{\text{ATR}_{14}}$$
-        $$\text{DX} = 100 \cdot \frac{\vert{}+\text{DI} - -\text{DI}\vert{}}{+\text{DI} + -\text{DI}}, \quad \text{ADX}_{14} = \text{EMA}_{14}(\text{DX})$$
-      </div>
-    </div>
-
-    <div class="math-card">
-      <h4 style="color: var(--text-bright); margin-bottom: 6px;">5. Fixed Entry, Take-Profit Target, and Stop-Loss Levels</h4>
-      <p style="font-size: 0.85rem; color: #a3a6b4;">Establishes asymmetric Risk-to-Reward ratio ($k_{\text{TP}} : k_{\text{SL}} = 2.5 : 1$).</p>
-      <div class="math-formula">
-        $$\text{Target}_{\text{Bullish}} = \text{Entry} + \left(k_{\text{TP}} \cdot \text{ATR}_{14}\right), \quad \text{SL}_{\text{Bullish}} = \text{Entry} - \left(k_{\text{SL}} \cdot \text{ATR}_{14}\right)$$
-        $$\text{Target}_{\text{Bearish}} = \text{Entry} - \left(k_{\text{TP}} \cdot \text{ATR}_{14}\right), \quad \text{SL}_{\text{Bearish}} = \text{Entry} + \left(k_{\text{SL}} \cdot \text{ATR}_{14}\right)$$
-      </div>
-    </div>
-
-    <div class="math-card">
-      <h4 style="color: var(--text-bright); margin-bottom: 6px;">6. Adaptive Feedback Optimization Rules</h4>
-      <p style="font-size: 0.85rem; color: #a3a6b4;">Evaluates historical performance to self-adjust trend entry filters dynamically.</p>
-      <div class="math-formula">
-        $$\text{WinRate} = \frac{N_{\text{TargetHit}}}{N_{\text{Closed}}}, \quad \text{ProfitFactor} = \frac{\sum \text{PnL}_{\text{Wins}}}{\sum \vert{}\text{PnL}_{\text{Losses}}\vert{}}$$
-        $$\theta_{\text{ADX}}^{(t+1)} = \begin{cases} \min(30.0, \, \theta_{\text{ADX}}^{(t)} + 1.0), & \text{if } \text{WinRate} < 0.40 \text{ or } \text{ProfitFactor} < 1.1 \\ \max(18.0, \, \theta_{\text{ADX}}^{(t)} - 0.5), & \text{if } \text{WinRate} \ge 0.55 \text{ and } \text{ProfitFactor} \ge 1.8 \end{cases}$$
-      </div>
-    </div>
-
   </div>
 
   <script>
@@ -435,7 +381,7 @@
               <td>$${row.sl.toFixed(2)}</td>
               <td class="${statusClass}">${row.status}</td>
               <td>$${row.exit_price ? row.exit_price.toFixed(2) : '--'}</td>
-              <td style="color: ${row.pnl_pct >= 0 ? '#089981' : '#f23645'}; font-weight: 700;">${row.pnl_pct ? (row.pnl_pct >= 0 ? '+' : '') + row.pnl_pct.toFixed(2) + '%' : '--'}</td>
+              <td style="color: ${row.pnl_pct >= 0 ? '#089981' : '#f23645'}; font-weight: 700;">${row.pnl_pct !== null ? (row.pnl_pct >= 0 ? '+' : '') + row.pnl_pct.toFixed(2) + '%' : '--'}</td>
             `;
             tbody.appendChild(tr);
           });
