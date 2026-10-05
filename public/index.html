@@ -3,9 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Crypto Directional Trades | Transparent Quant Engine</title>
+  <title>Crypto Directional Trades | Calibrated IST Engine</title>
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-  <!-- MathJax for rendering LaTeX formulas -->
   <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
   <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
@@ -21,7 +20,6 @@
       --accent-red: #f23645;
       --accent-blue: #2962ff;
       --accent-gold: #f5a623;
-      --accent-purple: #9c27b0;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
     body { background-color: var(--bg-dark); color: var(--text-main); padding: 20px; line-height: 1.5; }
@@ -29,6 +27,10 @@
     .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--card-border); padding-bottom: 16px; flex-wrap: wrap; gap: 12px; }
     .header h1 { font-size: 1.4rem; color: var(--text-bright); font-weight: 800; }
     
+    .header-actions { display: flex; align-items: center; gap: 12px; }
+    .test-btn { background: rgba(8, 153, 129, 0.15); border: 1px solid var(--accent-green); color: var(--accent-green); padding: 6px 14px; border-radius: 16px; font-size: 0.8rem; font-weight: 700; cursor: pointer; transition: all 0.2s ease; }
+    .test-btn:hover { background: var(--accent-green); color: #fff; }
+
     .tf-toggle { display: flex; background: var(--panel-bg); border: 1px solid var(--card-border); border-radius: 20px; padding: 4px; gap: 4px; }
     .tf-btn { background: none; border: none; color: #787b86; padding: 6px 16px; border-radius: 16px; font-size: 0.8rem; font-weight: 700; cursor: pointer; transition: all 0.2s ease; }
     .tf-btn.active { background: var(--accent-blue); color: #fff; }
@@ -65,8 +67,7 @@
     .status-be { color: var(--accent-blue); font-weight: 700; }
     .status-open { color: var(--accent-gold); font-weight: 700; }
 
-    /* Tab 3 Detailed Styling */
-    .section-header { font-size: 1.1rem; font-weight: 800; color: var(--text-bright); margin: 28px 0 14px 0; border-bottom: 1px solid var(--card-border); padding-bottom: 8px; }
+    .section-header { font-size: 1.1rem; font-weight: 800; color: var(--text-bright); margin: 24px 0 12px 0; border-bottom: 1px solid var(--card-border); padding-bottom: 8px; }
     .flow-step { background: var(--card-bg); border: 1px solid var(--card-border); border-left: 4px solid var(--accent-blue); padding: 14px 18px; border-radius: 6px; margin-bottom: 12px; }
     .flow-step-title { font-size: 0.88rem; font-weight: 700; color: var(--text-bright); margin-bottom: 4px; }
     .flow-step-desc { font-size: 0.83rem; color: #a3a6b4; }
@@ -76,16 +77,19 @@
 </head>
 <body>
 
-  <!-- Header & Timeframe Switcher -->
+  <!-- Header & Actions -->
   <div class="header">
     <div>
       <h1>⚡ Crypto Directional Trades</h1>
-      <span style="font-size: 0.8rem; color: var(--accent-green); font-weight: 600;">● TRANSPARENT QUANT ENGINE (IST)</span>
+      <span style="font-size: 0.8rem; color: var(--accent-green); font-weight: 600;">● CALIBRATED IST ENGINE (500 BARS)</span>
     </div>
     
-    <div class="tf-toggle">
-      <button class="tf-btn active" id="tf15mBtn" onclick="setTimeframe('15m')">15M Timeframe</button>
-      <button class="tf-btn" id="tf1hBtn" onclick="setTimeframe('1h')">1H Timeframe</button>
+    <div class="header-actions">
+      <button class="test-btn" onclick="triggerTestAlert()">🧪 Send Test Alert</button>
+      <div class="tf-toggle">
+        <button class="tf-btn active" id="tf15mBtn" onclick="setTimeframe('15m')">15M Timeframe</button>
+        <button class="tf-btn" id="tf1hBtn" onclick="setTimeframe('1h')">1H Timeframe</button>
+      </div>
     </div>
   </div>
 
@@ -93,7 +97,7 @@
   <div class="tabs-nav">
     <button class="tab-btn active" onclick="switchTab('tab1')">📊 Tab 1: Live Signals & Explanation</button>
     <button class="tab-btn" onclick="switchTab('tab2')">📖 Tab 2: Signal Journal & Adaptive Learning</button>
-    <button class="tab-btn" onclick="switchTab('tab3')">📐 Tab 3: Execution Plan & Mathematical Formulas</button>
+    <button class="tab-btn" onclick="switchTab('tab3')">📐 Tab 3: Execution Plan & Formulas</button>
   </div>
 
   <!-- TAB 1: LIVE SIGNALS & EXPLANATION -->
@@ -165,11 +169,11 @@
     <div class="grid">
       <div class="card">
         <div class="card-title"><span id="tfLabelAdapt">15M</span> Calibrated Status</div>
-        <div class="card-value" style="font-size: 0.82rem; color: var(--accent-green); margin-top: 8px;" id="adaptStatus">INITIALIZING...</div>
+        <div class="card-value" style="font-size: 0.85rem; color: var(--accent-green); margin-top: 8px;" id="adaptStatus">INITIALIZING...</div>
       </div>
       <div class="card">
-        <div class="card-title">ADX / CMF Threshold</div>
-        <div class="card-value" id="adaptAdx">15.0 / +0.03</div>
+        <div class="card-title">ADX / Min Compression</div>
+        <div class="card-value" id="adaptAdx">15.0</div>
       </div>
       <div class="card">
         <div class="card-title"><span id="tfLabelWin">15M</span> Journal Win Rate</div>
@@ -209,231 +213,39 @@
 
   <!-- TAB 3: EXECUTION PLAN & MATHEMATICAL FORMULAS -->
   <div id="tab3" class="tab-content">
-    
-    <!-- Section 1: Execution Architecture & Pipeline Flowchart -->
-    <div class="section-header">⚙️ 1. Execution Architecture & System Workflow</div>
-    
+    <div class="section-header">⚙️ System Execution Architecture & Pipeline</div>
     <div class="flow-step" style="border-left-color: var(--accent-blue);">
       <div class="flow-step-title">Step 1: REST Ingestion & IST Timezone Normalization</div>
       <div class="flow-step-desc">
-        Every 30 seconds, the backend queries Delta Exchange India REST endpoints (`/v2/history/candles`) to fetch 500 OHLCV candles (~5.2 days for 15m; ~20.8 days for 1h). Epoch UTC timestamps are converted to Indian Standard Time ($\text{IST} = \text{UTC} + 5:30$).
+        Queries Delta Exchange India REST endpoints every 30 seconds for live OHLCV candles (`/v2/history/candles`). Epoch UTC timestamps are converted to IST (UTC + 5:30).
       </div>
     </div>
-
-    <div class="flow-step" style="border-left-color: var(--accent-purple);">
-      <div class="flow-step-title">Step 2: Vectorized Indicator Array Matrix</div>
-      <div class="flow-step-desc">
-        Computes 9 technical indicators simultaneously using native `pandas` and `numpy`: EMAs (20, 50, 200), ATR (14), ATR Expansion Slope ($\Delta \text{ATR}$), Chaikin Money Flow ($\text{CMF}_{20}$), RSI (14), ADX (14), Volume SMA (20), Bollinger Bands (20, 2.0 std), and Keltner Channels (20, 1.5 ATR).
-      </div>
-    </div>
-
-    <div class="flow-step" style="border-left-color: var(--accent-gold);">
-      <div class="flow-step-title">Step 3: High-Probability Multi-Filter Gate Matrix</div>
-      <div class="flow-step-desc">
-        Applies a strict 5-part Boolean gate check across a 2-candle window: Squeeze release trigger, Volume surge ($\ge 1.05 \times \text{SMA}_{20}$), Chaikin Money Flow accumulation ($\text{CMF} \ge +0.03$), RSI Non-Exhaustion ($35 \le \text{RSI} \le 68$), and EMA trend alignment.
-      </div>
-    </div>
-
-    <div class="flow-step" style="border-left-color: var(--accent-green);">
-      <div class="flow-step-title">Step 4: Fixed-Target Position Locking State Machine</div>
-      <div class="flow-step-desc">
-        When an active trade triggers, entry price, stop-loss, and take-profit targets are locked in state memory. Levels remain frozen across API refreshes until intra-candle price action breaches TP or SL.
-      </div>
-    </div>
-
-    <div class="flow-step" style="border-left-color: var(--accent-red);">
-      <div class="flow-step-title">Step 5: Dynamic Breakeven Trailing & Journal Logging</div>
-      <div class="flow-step-desc">
-        Once floating profit touches $+1.0 \times \text{ATR}$, Stop Loss automatically moves to Breakeven ($\text{Entry} + 0.1 \times \text{ATR}$). When closed, the outcome is recorded into the Signal Journal.
-      </div>
-    </div>
-
-    <!-- Section 2: Connected API Endpoint Registry -->
-    <div class="section-header">🌐 2. Connected Data Source Registry</div>
-    <div class="card" style="padding: 0; overflow: hidden; margin-bottom: 24px;">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Data Feed</th>
-            <th>Source / Provider</th>
-            <th>REST Endpoint</th>
-            <th>Window Size</th>
-            <th>Timezone</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>15M OHLCV Candles</td>
-            <td>Delta Exchange India</td>
-            <td>`/v2/history/candles?resolution=15m`</td>
-            <td>500 Bars (~5.2 Days)</td>
-            <td>IST (UTC + 5:30)</td>
-          </tr>
-          <tr>
-            <td>1H OHLCV Candles</td>
-            <td>Delta Exchange India</td>
-            <td>`/v2/history/candles?resolution=1h`</td>
-            <td>500 Bars (~20.8 Days)</td>
-            <td>IST (UTC + 5:30)</td>
-          </tr>
-          <tr>
-            <td>Options Chain & OI</td>
-            <td>Delta Exchange India</td>
-            <td>`/v2/tickers`</td>
-            <td>Real-Time Tick</td>
-            <td>IST (UTC + 5:30)</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <!-- Section 3: Timeframe Parameter Comparison Matrix -->
-    <div class="section-header">📊 3. Timeframe Hyperparameter Calibration Matrix</div>
-    <div class="card" style="padding: 0; overflow: hidden; margin-bottom: 24px;">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Parameter</th>
-            <th>15-Minute Engine (15M)</th>
-            <th>1-Hour Engine (1H)</th>
-            <th>Quant Strategy Role</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>ADX Threshold ($\theta_{\text{ADX}}$)</td>
-            <td>15.0</td>
-            <td>18.0</td>
-            <td>Requires directional momentum strength</td>
-          </tr>
-          <tr>
-            <td>Min Squeeze Bars ($T_{\text{squeeze}}$)</td>
-            <td>4 Bars (1 Hour)</td>
-            <td>3 Bars (3 Hours)</td>
-            <td>Ensures genuine energy accumulation</td>
-          </tr>
-          <tr>
-            <td>Volume Surge Multiplier ($\alpha_{\text{vol}}$)</td>
-            <td>$1.05 \times \text{SMA}_{20}$</td>
-            <td>$1.08 \times \text{SMA}_{20}$</td>
-            <td>Confirms institutional breakout volume</td>
-          </tr>
-          <tr>
-            <td>Chaikin Money Flow Gate ($\theta_{\text{CMF}}$)</td>
-            <td>$+0.03$ (Long) / $-0.03$ (Short)</td>
-            <td>$+0.04$ (Long) / $-0.04$ (Short)</td>
-            <td>Filters out low-volume liquidity sweeps</td>
-          </tr>
-          <tr>
-            <td>RSI Range Limits ($\text{RSI}_{\text{range}}$)</td>
-            <td>$35 \le \text{RSI} \le 68$</td>
-            <td>$34 \le \text{RSI} \le 66$</td>
-            <td>Prevents buying overbought momentum peaks</td>
-          </tr>
-          <tr>
-            <td>Take Profit Multiplier ($k_{\text{TP}}$)</td>
-            <td>$2.5 \times \text{ATR}_{14}$</td>
-            <td>$2.8 \times \text{ATR}_{14}$</td>
-            <td>Captures asymmetric breakout expansion</td>
-          </tr>
-          <tr>
-            <td>Stop Loss Multiplier ($k_{\text{SL}}$)</td>
-            <td>$1.0 \times \text{ATR}_{14}$</td>
-            <td>$1.0 \times \text{ATR}_{14}$</td>
-            <td>Limits capital loss on mean-reversion</td>
-          </tr>
-          <tr>
-            <td>Breakeven Activation ($k_{\text{BE}}$)</td>
-            <td>$+1.0 \times \text{ATR}_{14}$</td>
-            <td>$+1.2 \times \text{ATR}_{14}$</td>
-            <td>Locks risk-free status on winning moves</td>
-          </tr>
-          <tr>
-            <td>Max Hold Limit ($T_{\text{max}}$)</td>
-            <td>32 Bars (8 Hours)</td>
-            <td>24 Bars (24 Hours)</td>
-            <td>Prevents capital tie-up during chop</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <!-- Section 4: Signal Classifier Decision Matrix -->
-    <div class="section-header">⚡ 4. Signal Classifier Truth Table & Decision Logic</div>
-    <div class="math-card">
-      <h4 style="color: var(--text-bright); margin-bottom: 8px;">A. Strong Bullish Breakout Gate ($\text{Signal} = \text{BULLISH}$)</h4>
-      <div class="math-formula">
-        $$\text{Squeeze\_Release} \land (T_{\text{squeeze}} \ge T_{\text{min}}) \land (V_t \ge 1.05 \cdot \text{Vol\_SMA}_{20}) \land (\text{ADX}_{14} \ge \theta_{\text{ADX}}) \land (C_t > \text{EMA}_{200}) \land (\text{EMA}_{20} > \text{EMA}_{50}) \land (\text{CMF}_{20} \ge +0.03) \land (35 \le \text{RSI}_{14} \le 68)$$
-      </div>
-
-      <h4 style="color: var(--text-bright); margin-top: 16px; margin-bottom: 8px;">B. Strong Bearish Breakout Gate ($\text{Signal} = \text{BEARISH}$)</h4>
-      <div class="math-formula">
-        $$\text{Squeeze\_Release} \land (T_{\text{squeeze}} \ge T_{\text{min}}) \land (V_t \ge 1.05 \cdot \text{Vol\_SMA}_{20}) \land (\text{ADX}_{14} \ge \theta_{\text{ADX}}) \land (C_t < \text{EMA}_{200}) \land (\text{EMA}_{20} < \text{EMA}_{50}) \land (\text{CMF}_{20} \le -0.03) \land (32 \le \text{RSI}_{14} \le 65)$$
-      </div>
-
-      <h4 style="color: var(--text-bright); margin-top: 16px; margin-bottom: 8px;">C. Neutral Volatility Expansion ($\text{Signal} = \text{NEUTRAL}$)</h4>
-      <div class="math-formula">
-        $$\text{Squeeze\_On} = (\text{BB}_{\text{Lower}} > \text{KC}_{\text{Lower}}) \land (\text{BB}_{\text{Upper}} < \text{KC}_{\text{Upper}})$$
-      </div>
-    </div>
-
-    <!-- Section 5: Mathematical Formulas & Derivations -->
-    <div class="section-header">🧮 5. Indicator Mathematical Formulas & Derivations</div>
-
-    <div class="math-card">
-      <h4 style="color: var(--text-bright); margin-bottom: 6px;">1. Exponential Moving Average ($\text{EMA}_N$)</h4>
-      <p style="font-size: 0.85rem; color: #a3a6b4;">Weighted moving average giving higher weight to recent price observations.</p>
-      <div class="math-formula">
-        $$\alpha = \frac{2}{N + 1}, \quad \text{EMA}_N[t] = \left(C_t \cdot \alpha\right) + \left(\text{EMA}_N[t-1] \cdot (1 - \alpha)\right)$$
-      </div>
-    </div>
-
-    <div class="math-card">
-      <h4 style="color: var(--text-bright); margin-bottom: 6px;">2. Average True Range ($\text{ATR}_{14}$)</h4>
-      <p style="font-size: 0.85rem; color: #a3a6b4;">Measures market volatility to dynamically scale stop-loss and take-profit targets.</p>
-      <div class="math-formula">
-        $$\text{TR}_t = \max\left(H_t - L_t, \, \vert{}H_t - C_{t-1}\vert{}, \, \vert{}L_t - C_{t-1}\vert{}\right), \quad \text{ATR}_{14} = \frac{1}{14} \sum_{i=0}^{13} \text{TR}_{t-i}$$
-      </div>
-    </div>
-
-    <div class="math-card">
-      <h4 style="color: var(--text-bright); margin-bottom: 6px;">3. TTM Volatility Squeeze Bands</h4>
-      <p style="font-size: 0.85rem; color: #a3a6b4;">Evaluates Bollinger Bands (20, 2.0 std) relative to Keltner Channels (20, 1.5 ATR).</p>
-      <div class="math-formula">
-        $$\text{BB}_{\text{Upper/Lower}} = \mu_{20} \pm 2.0 \cdot \sigma_{20}, \quad \text{KC}_{\text{Upper/Lower}} = \text{EMA}_{20} \pm 1.5 \cdot \text{ATR}_{14}$$
-        $$\text{Squeeze\_On} = (\text{BB}_{\text{Lower}} > \text{KC}_{\text{Lower}}) \land (\text{BB}_{\text{Upper}} < \text{KC}_{\text{Upper}})$$
-      </div>
-    </div>
-
-    <div class="math-card">
-      <h4 style="color: var(--text-bright); margin-bottom: 6px;">4. Chaikin Money Flow ($\text{CMF}_{20}$)</h4>
-      <p style="font-size: 0.85rem; color: #a3a6b4;">Quantifies institutional buying/selling accumulation over a 20-period rolling window.</p>
-      <div class="math-formula">
-        $$\text{MFM}_t = \frac{(C_t - L_t) - (H_t - C_t)}{H_t - L_t + \epsilon}, \quad \text{CMF}_{20} = \frac{\sum_{i=0}^{19} (\text{MFM}_{t-i} \cdot V_{t-i})}{\sum_{i=0}^{19} V_{t-i}}$$
-      </div>
-    </div>
-
-    <div class="math-card">
-      <h4 style="color: var(--text-bright); margin-bottom: 6px;">5. Relative Strength Index ($\text{RSI}_{14}$)</h4>
-      <p style="font-size: 0.85rem; color: #a3a6b4;">Measures speed and velocity of price movements to prevent buying overbought momentum peaks.</p>
-      <div class="math-formula">
-        $$\text{RS} = \frac{\text{EMA}_{14}(\text{Gain})}{\text{EMA}_{14}(\text{Loss}) + \epsilon}, \quad \text{RSI}_{14} = 100 - \left( \frac{100}{1 + \text{RS}} \right)$$
-      </div>
-    </div>
-
-    <div class="math-card">
-      <h4 style="color: var(--text-bright); margin-bottom: 6px;">6. Fixed Target & Dynamic Breakeven Stop Adjustment</h4>
-      <p style="font-size: 0.85rem; color: #a3a6b4;">Establishes asymmetric Risk-to-Reward ratio ($k_{\text{TP}} : k_{\text{SL}} = 2.5 : 1$) and locks risk-free status at $+1.0\text{x ATR}$.</p>
-      <div class="math-formula">
-        $$\text{Target}_{\text{Bullish}} = \text{Entry} + \left(k_{\text{TP}} \cdot \text{ATR}_{14}\right), \quad \text{SL}_{\text{Initial}} = \text{Entry} - \left(k_{\text{SL}} \cdot \text{ATR}_{14}\right)$$
-        $$\text{SL}_{\text{Trailing}} = \begin{cases} \text{Entry} + \left(0.1 \cdot \text{ATR}_{14}\right), & \text{if } H_t \ge \text{Entry} + \left(1.0 \cdot \text{ATR}_{14}\right) \text{ (Long)} \\ \text{Entry} - \left(0.1 \cdot \text{ATR}_{14}\right), & \text{if } L_t \le \text{Entry} - \left(1.0 \cdot \text{ATR}_{14}\right) \text{ (Short)} \end{cases}$$
-      </div>
-    </div>
-
   </div>
 
   <script>
     let currentTimeframe = '15m';
+
+    async function triggerTestAlert() {
+      const btn = document.querySelector('.test-btn');
+      btn.innerText = '⏳ Sending Test...';
+      btn.disabled = true;
+
+      try {
+        const res = await fetch('/api?test=true');
+        const data = await res.json();
+        
+        let msg = `Test Results:\n`;
+        msg += `• Email: ${data.email.success ? '✅ SENT (Check debashish@ifinstrats.com)' : '❌ FAILED (' + data.email.details + ')'}\n`;
+        msg += `• WhatsApp: ${data.whatsapp.success ? '✅ SENT (Check +91 9611900668)' : '❌ FAILED (' + data.whatsapp.details + ')'}`;
+        
+        alert(msg);
+      } catch (e) {
+        alert(`Test trigger failed: ${e.message}`);
+      } finally {
+        btn.innerText = '🧪 Send Test Alert';
+        btn.disabled = false;
+      }
+    }
 
     function setTimeframe(tf) {
       if (currentTimeframe === tf) return;
@@ -550,10 +362,6 @@
         };
 
         Plotly.newPlot('chart', [traceCandles, traceEMA20, traceEMA200, traceMom], layout, { responsive: true });
-
-        if (window.MathJax) {
-          MathJax.typesetPromise();
-        }
       } catch (e) {
         console.error('Fetch error:', e);
       }

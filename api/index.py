@@ -12,7 +12,6 @@ import numpy as np
 
 DELTA_BASE_URL = "https://api.india.delta.exchange"
 
-# Configurations
 TF_CONFIGS = {
     "15m": {
         "adx_thresh": 15.0,
@@ -32,16 +31,14 @@ TF_CONFIGS = {
     }
 }
 
-# Track notified trade IDs across Vercel function lifetime to avoid duplicate alerts
 NOTIFIED_ENTRIES = set()
 NOTIFIED_EXITS = set()
 
 # =========================================================
-# NOTIFICATION DISPATCHERS (EMAIL & WHATSAPP)
+# NOTIFICATION DISPATCHERS
 # =========================================================
 
 def send_email_alert(subject: str, body: str):
-    """Sends action item email via SMTP."""
     smtp_server = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
     smtp_port = int(os.environ.get("SMTP_PORT", 587))
     smtp_user = os.environ.get("SMTP_USER", "")
@@ -49,8 +46,8 @@ def send_email_alert(subject: str, body: str):
     target_email = os.environ.get("TARGET_EMAIL", "debashish@ifinstrats.com")
 
     if not smtp_user or not smtp_pass:
-        print("[Notifier] Email credentials missing in Environment Variables. Skipping email.")
-        return
+        print("[Notifier] Email credentials missing in Environment Variables.")
+        return False, "SMTP credentials missing"
 
     try:
         msg = MIMEMultipart()
@@ -64,21 +61,21 @@ def send_email_alert(subject: str, body: str):
         server.login(smtp_user, smtp_pass)
         server.send_message(msg)
         server.quit()
-        print(f"[Notifier] Email successfully sent to {target_email}")
+        return True, "Success"
     except Exception as e:
         print(f"[Notifier Error] Email failed: {e}")
+        return False, str(e)
 
 
 def send_whatsapp_alert(message_body: str):
-    """Sends action item WhatsApp message via Twilio API."""
     account_sid = os.environ.get("TWILIO_SID", "")
     auth_token = os.environ.get("TWILIO_TOKEN", "")
     from_number = os.environ.get("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")
     to_number = os.environ.get("TARGET_WHATSAPP", "whatsapp:+919611900668")
 
     if not account_sid or not auth_token:
-        print("[Notifier] Twilio credentials missing in Environment Variables. Skipping WhatsApp.")
-        return
+        print("[Notifier] Twilio credentials missing in Environment Variables.")
+        return False, "Twilio credentials missing"
 
     try:
         url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json"
@@ -89,15 +86,15 @@ def send_whatsapp_alert(message_body: str):
         }
         res = requests.post(url, data=payload, auth=(account_sid, auth_token), timeout=8)
         if res.status_code in [200, 201]:
-            print(f"[Notifier] WhatsApp successfully sent to {to_number}")
+            return True, "Success"
         else:
-            print(f"[Notifier Error] Twilio WhatsApp API returned: {res.text}")
+            return False, res.text
     except Exception as e:
         print(f"[Notifier Error] WhatsApp failed: {e}")
+        return False, str(e)
 
 
 def dispatch_action_notifications(event_type: str, trade: dict):
-    """Formats and dispatches Email + WhatsApp notifications."""
     trade_id = trade.get("timestamp")
     tf = trade.get("timeframe", "15M")
     direction = trade.get("direction", "LONG")
@@ -355,7 +352,6 @@ def process_enhanced_signals_and_journal(df, tf):
             
             journal.append(trade_obj)
             
-            # TRIGGER ENTRY / EXIT NOTIFICATIONS IF LAST BAR BREACHED
             if status == "OPEN" and last_bar_evaluated >= n_bars - 1:
                 active_position = trade_obj
                 dispatch_action_notifications("ENTRY", trade_obj)
@@ -392,6 +388,37 @@ class handler(BaseHTTPRequestHandler):
         try:
             parsed_url = urllib.parse.urlparse(self.path)
             query_params = urllib.parse.parse_qs(parsed_url.query)
+            
+            # TEST DISPATCHER TRIGGER
+            if query_params.get("test", ["false"])[0].lower() == "true":
+                curr_ist = (pd.Timestamp.utcnow() + pd.Timedelta(hours=5, minutes=30)).strftime("%Y-%m-%d %H:%M IST")
+                test_subj = f"🧪 TEST ALERT: Quant Notification Check ({curr_ist})"
+                test_body = (
+                    f"TEST NOTIFICATION - NOTIFIER SYSTEM CHECK\n"
+                    f"-----------------------------------------\n"
+                    f"Timeframe: 15M (SYSTEM TEST)\n"
+                    f"Direction: BULLISH\n"
+                    f"Entry Price: $2,650.00\n"
+                    f"Take Profit Target: $2,716.25\n"
+                    f"Stop Loss: $2,623.50\n"
+                    f"Timestamp: {curr_ist}\n\n"
+                    f"If you receive this, your Vercel Environment Variables for Email & WhatsApp are configured correctly!"
+                )
+                email_ok, email_msg = send_email_alert(test_subj, test_body)
+                wa_ok, wa_msg = send_whatsapp_alert(test_body)
+                
+                resp = {
+                    "status": "TEST_DISPATCHED",
+                    "email": {"success": email_ok, "details": email_msg},
+                    "whatsapp": {"success": wa_ok, "details": wa_msg}
+                }
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps(resp).encode("utf-8"))
+                return
+
             tf = query_params.get("tf", ["15m"])[0].lower()
             if tf not in ["15m", "1h"]:
                 tf = "15m"
