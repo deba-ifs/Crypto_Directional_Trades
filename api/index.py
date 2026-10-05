@@ -8,23 +8,28 @@ import numpy as np
 
 DELTA_BASE_URL = "https://api.india.delta.exchange"
 
-# Timeframe Configuration Parameters
 TF_CONFIGS = {
     "15m": {
-        "adx_thresh": 15.0,      # Calibrated for early squeeze expansion
-        "min_squeeze_bars": 4,   # 1 hour of 15m compression
-        "vol_mult": 1.05,        # 5% volume expansion over SMA20
+        "adx_thresh": 16.0,
+        "min_squeeze_bars": 4,
+        "cmf_thresh": 0.03,       # Institutional accumulation threshold
+        "rsi_max_long": 68.0,     # Max RSI for Long entries
+        "rsi_min_short": 32.0,    # Min RSI for Short entries
         "tp_mult": 2.5,
         "sl_mult": 1.0,
-        "max_hold_bars": 32      # 8 hours max hold
+        "be_trigger_mult": 1.0,   # Move to Breakeven when price hits +1.0x ATR
+        "max_hold_bars": 32
     },
     "1h": {
-        "adx_thresh": 18.0,      # Calibrated for 1h squeeze release
-        "min_squeeze_bars": 3,   # 3 hours of 1h compression
-        "vol_mult": 1.08,
+        "adx_thresh": 18.0,
+        "min_squeeze_bars": 3,
+        "cmf_thresh": 0.04,
+        "rsi_max_long": 66.0,
+        "rsi_min_short": 34.0,
         "tp_mult": 2.8,
         "sl_mult": 1.0,
-        "max_hold_bars": 24      # 24 hours max hold
+        "be_trigger_mult": 1.2,
+        "max_hold_bars": 24
     }
 }
 
@@ -35,14 +40,13 @@ def fetch_candles_ist(tf="15m", limit=500):
     start = end - (limit * step)
     
     params = {"symbol": "ETHUSD", "resolution": tf, "start": start, "end": end}
-    headers = {"User-Agent": "CryptoDirectionalTrades/7.0"}
+    headers = {"User-Agent": "CryptoDirectionalTrades/8.0"}
     
     try:
         res = requests.get(url, params=params, headers=headers, timeout=10)
         data = res.json()
         if data.get("success") and data.get("result"):
             df = pd.DataFrame(data["result"])
-            # Convert UTC epoch seconds to IST (UTC + 5 hours 30 minutes)
             df["dt_utc"] = pd.to_datetime(df["time"], unit="s")
             df["dt_ist"] = df["dt_utc"] + pd.Timedelta(hours=5, minutes=30)
             df["timestamp"] = df["dt_ist"].dt.strftime("%Y-%m-%d %H:%M IST")
@@ -52,13 +56,13 @@ def fetch_candles_ist(tf="15m", limit=500):
                 df[c] = df[c].astype(float)
             return df.sort_values("dt_ist").reset_index(drop=True)
     except Exception as e:
-        print(f"[Warning] Delta API Fetch Error: {e}")
+        print(f"[Warning] API Fetch Error: {e}")
         pass
     return generate_fallback_data_ist(tf, limit)
 
 def fetch_options_chain():
     url = f"{DELTA_BASE_URL}/v2/tickers"
-    headers = {"User-Agent": "CryptoDirectionalTrades/7.0"}
+    headers = {"User-Agent": "CryptoDirectionalTrades/8.0"}
     try:
         res = requests.get(url, headers=headers, timeout=10)
         data = res.json()
@@ -80,34 +84,49 @@ def fetch_options_chain():
 
 def compute_quant_analytics(df):
     d = df.copy()
+    
+    # 1. EMAs
     d["EMA_20"] = d["Close"].ewm(span=20, adjust=False).mean()
     d["EMA_50"] = d["Close"].ewm(span=50, adjust=False).mean()
     d["EMA_200"] = d["Close"].ewm(span=200, adjust=False).mean()
     
+    # 2. ATR & ATR Expansion Slope (3-bar delta)
     tr0 = abs(d["High"] - d["Low"])
     tr1 = abs(d["High"] - d["Close"].shift(1))
     tr2 = abs(d["Low"] - d["Close"].shift(1))
     d["ATR"] = pd.concat([tr0, tr1, tr2], axis=1).max(axis=1).rolling(14).mean().bfill()
+    d["ATR_Slope"] = d["ATR"] - d["ATR"].shift(3)
     
+    # 3. Bollinger Bands & Keltner Channels
     bb_mid = d["Close"].rolling(20).mean()
     bb_std = d["Close"].rolling(20).std()
     d["BB_Upper"] = bb_mid + (2.0 * bb_std)
     d["BB_Lower"] = bb_mid - (2.0 * bb_std)
-    
     d["KC_Upper"] = d["EMA_20"] + (1.5 * d["ATR"])
     d["KC_Lower"] = d["EMA_20"] - (1.5 * d["ATR"])
     
     d["Squeeze_On"] = (d["BB_Lower"] > d["KC_Lower"]) & (d["BB_Upper"] < d["KC_Upper"])
-    
     sq_series = d["Squeeze_On"]
     d["Squeeze_Duration"] = sq_series.groupby((~sq_series).cumsum()).cumsum()
     
+    # 4. Squeeze Momentum
     hh = d["High"].rolling(20).max()
     ll = d["Low"].rolling(20).min()
     d["Squeeze_Mom"] = d["Close"] - (((hh + ll) / 2 + d["EMA_20"]) / 2)
     
-    d["Vol_SMA_20"] = d["Volume"].rolling(20).mean().bfill()
+    # 5. Chaikin Money Flow (CMF 20)
+    mf_mult = ((d["Close"] - d["Low"]) - (d["High"] - d["Close"])) / (d["High"] - d["Low"] + 1e-9)
+    mf_vol = mf_mult * d["Volume"]
+    d["CMF"] = mf_vol.rolling(20).sum() / (d["Volume"].rolling(20).sum() + 1e-9)
     
+    # 6. RSI (14)
+    delta = d["Close"].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+    rs = gain / (loss + 1e-9)
+    d["RSI"] = 100 - (100 / (1 + rs))
+    
+    # 7. ADX (14)
     up = d["High"].diff()
     down = -d["Low"].diff()
     p_dm = np.where((up > down) & (up > 0), up, 0.0)
@@ -118,18 +137,23 @@ def compute_quant_analytics(df):
     dx = 100 * (abs(p_di - m_di) / (p_di + m_di + 1e-9))
     d["ADX"] = dx.rolling(14).mean().bfill()
     
+    d["Vol_SMA_20"] = d["Volume"].rolling(20).mean().bfill()
+    
     return d.bfill().ffill()
 
-def process_deterministic_signals_and_journal(df, tf):
+def process_enhanced_signals_and_journal(df, tf):
     """
-    Processes candles deterministically with calibrated 2-candle expansion window rules.
+    Evaluates trades using CMF, RSI, ATR Slope, and Breakeven Trailing Stops.
     """
     cfg = TF_CONFIGS[tf]
     adx_thresh = cfg["adx_thresh"]
     min_squeeze = cfg["min_squeeze_bars"]
-    vol_mult = cfg["vol_mult"]
+    cmf_thresh = cfg["cmf_thresh"]
+    rsi_max_long = cfg["rsi_max_long"]
+    rsi_min_short = cfg["rsi_min_short"]
     tp_mult = cfg["tp_mult"]
     sl_mult = cfg["sl_mult"]
+    be_trigger = cfg["be_trigger_mult"]
     max_hold = cfg["max_hold_bars"]
     
     journal = []
@@ -142,18 +166,23 @@ def process_deterministic_signals_and_journal(df, tf):
         prev_row = df.iloc[i-1]
         prev_row2 = df.iloc[i-2] if i >= 2 else prev_row
         
-        # 2-candle squeeze release detection
+        # 1. Squeeze Release Condition (2-bar window)
         sq_release = (prev_row["Squeeze_On"] == True and row["Squeeze_On"] == False) or \
                      (prev_row2["Squeeze_On"] == True and prev_row["Squeeze_On"] == False and row["Squeeze_On"] == False)
                      
         valid_duration = (prev_row["Squeeze_Duration"] >= min_squeeze) or (prev_row2["Squeeze_Duration"] >= min_squeeze)
-        vol_surge = row["Volume"] >= vol_mult * row["Vol_SMA_20"]
+        vol_surge = row["Volume"] >= 1.05 * row["Vol_SMA_20"]
+        atr_expanding = row["ATR_Slope"] >= -0.2  # ATR is stable or growing
         
         sig_dir = None
-        if sq_release and valid_duration and vol_surge and row["ADX"] >= adx_thresh:
-            if row["Close"] > row["EMA_200"] and row["Squeeze_Mom"] > 0:
+        if sq_release and valid_duration and vol_surge and atr_expanding and row["ADX"] >= adx_thresh:
+            # Bullish Multi-Filter Check
+            if (row["Close"] > row["EMA_200"]) and (row["EMA_20"] > row["EMA_50"]) and \
+               (row["Squeeze_Mom"] > 0) and (row["CMF"] >= cmf_thresh) and (35.0 <= row["RSI"] <= rsi_max_long):
                 sig_dir = "BULLISH"
-            elif row["Close"] < row["EMA_200"] and row["Squeeze_Mom"] < 0:
+            # Bearish Multi-Filter Check
+            elif (row["Close"] < row["EMA_200"]) and (row["EMA_20"] < row["EMA_50"]) and \
+                 (row["Squeeze_Mom"] < 0) and (row["CMF"] <= -cmf_thresh) and (rsi_min_short <= row["RSI"] <= 65.0):
                 sig_dir = "BEARISH"
                 
         if sig_dir:
@@ -163,11 +192,14 @@ def process_deterministic_signals_and_journal(df, tf):
             
             tp_p = round(entry_p + (tp_mult * atr_v), 2) if sig_dir == "BULLISH" else round(entry_p - (tp_mult * atr_v), 2)
             sl_p = round(entry_p - (sl_mult * atr_v), 2) if sig_dir == "BULLISH" else round(entry_p + (sl_mult * atr_v), 2)
+            be_price = round(entry_p + (0.1 * atr_v), 2) if sig_dir == "BULLISH" else round(entry_p - (0.1 * atr_v), 2)
+            be_threshold = entry_p + (be_trigger * atr_v) if sig_dir == "BULLISH" else entry_p - (be_trigger * atr_v)
             
             status = "OPEN"
             exit_p = entry_p
             pnl_pct = 0.0
             exit_time = None
+            be_activated = False
             
             j = i + 1
             last_bar_evaluated = j
@@ -176,24 +208,33 @@ def process_deterministic_signals_and_journal(df, tf):
                 last_bar_evaluated = j
                 
                 if sig_dir == "BULLISH":
+                    # Check if Breakeven trailing stop should trigger
+                    if sub_row["High"] >= be_threshold and not be_activated:
+                        be_activated = True
+                        sl_p = be_price  # Move Stop-Loss to Breakeven (+0.1x ATR)
+                        
                     if sub_row["High"] >= tp_p:
                         status, exit_p = "TARGET_HIT", tp_p
                         pnl_pct = (tp_p - entry_p) / entry_p * 100
                         exit_time = sub_row["timestamp"]
                         break
                     elif sub_row["Low"] <= sl_p:
-                        status, exit_p = "SL_HIT", sl_p
+                        status, exit_p = ("BREAKEVEN_EXIT" if be_activated else "SL_HIT"), sl_p
                         pnl_pct = (sl_p - entry_p) / entry_p * 100
                         exit_time = sub_row["timestamp"]
                         break
                 else: # BEARISH
+                    if sub_row["Low"] <= be_threshold and not be_activated:
+                        be_activated = True
+                        sl_p = be_price
+                        
                     if sub_row["Low"] <= tp_p:
                         status, exit_p = "TARGET_HIT", tp_p
                         pnl_pct = (entry_p - tp_p) / entry_p * 100
                         exit_time = sub_row["timestamp"]
                         break
                     elif sub_row["High"] >= sl_p:
-                        status, exit_p = "SL_HIT", sl_p
+                        status, exit_p = ("BREAKEVEN_EXIT" if be_activated else "SL_HIT"), sl_p
                         pnl_pct = (entry_p - sl_p) / entry_p * 100
                         exit_time = sub_row["timestamp"]
                         break
@@ -206,6 +247,7 @@ def process_deterministic_signals_and_journal(df, tf):
                 "entry": round(entry_p, 2),
                 "tp": tp_p,
                 "sl": sl_p,
+                "be_active": be_activated,
                 "status": status,
                 "exit_price": round(exit_p, 2) if status != "OPEN" else None,
                 "pnl_pct": round(pnl_pct, 2) if status != "OPEN" else None,
@@ -217,7 +259,7 @@ def process_deterministic_signals_and_journal(df, tf):
             if status == "OPEN" and last_bar_evaluated >= n_bars - 1:
                 active_position = trade_obj
                 
-            i = j  # Fast-forward past position holding duration
+            i = j  # Fast-forward
         else:
             i += 1
 
@@ -255,12 +297,14 @@ class handler(BaseHTTPRequestHandler):
             df = compute_quant_analytics(df)
             options = fetch_options_chain()
             
-            journal, active_pos = process_deterministic_signals_and_journal(df, tf)
+            journal, active_pos = process_enhanced_signals_and_journal(df, tf)
             
             latest = df.iloc[-1]
             spot = float(latest["Close"])
             atr = float(latest["ATR"])
             adx = float(latest["ADX"])
+            cmf = float(latest["CMF"])
+            rsi = float(latest["RSI"])
             squeeze = bool(latest["Squeeze_On"])
             
             cfg = TF_CONFIGS[tf]
@@ -272,29 +316,27 @@ class handler(BaseHTTPRequestHandler):
                 state = f"ACTIVE POSITION ({active_pos['direction']})"
                 entry_val = f"${active_pos['entry']:,.2f} (LOCKED)"
                 tp_val = f"${active_pos['tp']:,.2f} (LOCKED)"
-                sl_val = f"${active_pos['sl']:,.2f} (LOCKED)"
+                sl_val = f"${active_pos['sl']:,.2f} ({'BREAKEVEN' if active_pos['be_active'] else 'LOCKED'})"
                 
-                exp_entry = f"[{tf.upper()} Frame IST] Active {active_pos['direction']} trade triggered at {active_pos['timestamp']}. Levels locked for position duration."
+                exp_entry = f"[{tf.upper()} Frame IST] Active {active_pos['direction']} trade. CMF ({cmf:+.3f}) & RSI ({rsi:.1f}) aligned."
                 exp_tp = f"Target fixed at ${active_pos['tp']:,.2f} (+{tp_mult:.1f}x ATR)."
-                exp_sl = f"Stop Loss fixed at ${active_pos['sl']:,.2f} (-{sl_mult:.1f}x ATR)."
+                exp_sl = f"Stop Loss fixed at ${active_pos['sl']:,.2f} ({'Breakeven Active' if active_pos['be_active'] else '1.0x ATR'})."
             elif squeeze:
                 state = f"NEUTRAL VOLATILITY EXPANSION ({tf.upper()})"
                 entry_val, tp_val, sl_val = "N/A", "N/A", "N/A"
-                exp_entry = f"[{tf.upper()} Frame IST] TTM Squeeze active ({int(latest['Squeeze_Duration'])} bars). Price compressing inside Keltner Channels."
-                exp_tp = "N/A (Symmetrical Gamma Expansion Pending)"
-                exp_sl = "N/A (Exit on Compression Breach)"
+                exp_entry = f"[{tf.upper()} Frame IST] Squeeze active ({int(latest['Squeeze_Duration'])} bars). CMF is {cmf:+.3f}, RSI is {rsi:.1f}."
+                exp_tp = "N/A (Gamma Expansion Pending)"
+                exp_sl = "N/A (Exit on Squeeze Breach)"
             else:
                 state = "NO-TRADE"
                 entry_val, tp_val, sl_val = "N/A", "N/A", "N/A"
-                exp_entry = f"[{tf.upper()} Frame IST] Stand aside. ADX ({adx:.1f}) is below active threshold ({adx_thresh:.1f}) or Volume filter is unconfirmed."
+                exp_entry = f"[{tf.upper()} Frame IST] Stand aside. CMF ({cmf:+.3f}) or RSI ({rsi:.1f}) filters unconfirmed."
                 exp_tp = "N/A (No active position)"
                 exp_sl = "N/A (No active position)"
 
-            closed = [t for t in journal if t["status"] in ["TARGET_HIT", "SL_HIT"]]
+            closed = [t for t in journal if t["status"] in ["TARGET_HIT", "SL_HIT", "BREAKEVEN_EXIT"]]
             wins = [t for t in closed if t["status"] == "TARGET_HIT"]
             w_rate = round((len(wins) / len(closed)) * 100, 1) if closed else 0.0
-            
-            learning_status = f"CALIBRATED ({len(closed)} Closed Trades | Win Rate: {w_rate}%)"
             
             payload = {
                 "timeframe": tf.upper(),
@@ -302,6 +344,8 @@ class handler(BaseHTTPRequestHandler):
                 "signal_state": state,
                 "squeeze_on": squeeze,
                 "adx": round(adx, 1),
+                "cmf": round(cmf, 3),
+                "rsi": round(rsi, 1),
                 "pcr": options["pcr_oi"],
                 "atr": round(atr, 2),
                 "targets": {
@@ -316,14 +360,15 @@ class handler(BaseHTTPRequestHandler):
                 },
                 "adaptive_engine": {
                     "adx_thresh": adx_thresh,
+                    "cmf_thresh": cfg["cmf_thresh"],
                     "min_squeeze_bars": cfg["min_squeeze_bars"],
                     "tp_mult": tp_mult,
                     "sl_mult": sl_mult,
-                    "status": learning_status,
+                    "status": f"HIGH-PROBABILITY ENGINE ({len(closed)} Closed Trades | Win Rate: {w_rate}%)",
                     "total_logged_signals": len(journal),
                     "recorded_win_rate": w_rate
                 },
-                "signal_journal": journal[::-1],  # Reverse to show newest trades at top
+                "signal_journal": journal[::-1],
                 "series": {
                     "timestamps": df["timestamp"].tolist(),
                     "open": df["Open"].tolist(),
