@@ -11,15 +11,17 @@ DELTA_BASE_URL = "https://api.india.delta.exchange"
 # Timeframe Configuration Parameters
 TF_CONFIGS = {
     "15m": {
-        "adx_thresh": 22.0,
-        "min_squeeze_bars": 12,  # 3 hours of compression
+        "adx_thresh": 15.0,      # Calibrated for early squeeze expansion
+        "min_squeeze_bars": 4,   # 1 hour of 15m compression
+        "vol_mult": 1.05,        # 5% volume expansion over SMA20
         "tp_mult": 2.5,
         "sl_mult": 1.0,
         "max_hold_bars": 32      # 8 hours max hold
     },
     "1h": {
-        "adx_thresh": 25.0,
-        "min_squeeze_bars": 5,   # 5 hours of compression
+        "adx_thresh": 18.0,      # Calibrated for 1h squeeze release
+        "min_squeeze_bars": 3,   # 3 hours of 1h compression
+        "vol_mult": 1.08,
         "tp_mult": 2.8,
         "sl_mult": 1.0,
         "max_hold_bars": 24      # 24 hours max hold
@@ -27,16 +29,13 @@ TF_CONFIGS = {
 }
 
 def fetch_candles_ist(tf="15m", limit=500):
-    """
-    Fetches OHLCV candles from Delta Exchange and converts UTC timestamps to IST (UTC + 5:30).
-    """
     url = f"{DELTA_BASE_URL}/v2/history/candles"
     end = int(time.time())
     step = 900 if tf == "15m" else 3600
     start = end - (limit * step)
     
     params = {"symbol": "ETHUSD", "resolution": tf, "start": start, "end": end}
-    headers = {"User-Agent": "CryptoDirectionalTrades/6.0"}
+    headers = {"User-Agent": "CryptoDirectionalTrades/7.0"}
     
     try:
         res = requests.get(url, params=params, headers=headers, timeout=10)
@@ -59,7 +58,7 @@ def fetch_candles_ist(tf="15m", limit=500):
 
 def fetch_options_chain():
     url = f"{DELTA_BASE_URL}/v2/tickers"
-    headers = {"User-Agent": "CryptoDirectionalTrades/6.0"}
+    headers = {"User-Agent": "CryptoDirectionalTrades/7.0"}
     try:
         res = requests.get(url, headers=headers, timeout=10)
         data = res.json()
@@ -123,12 +122,12 @@ def compute_quant_analytics(df):
 
 def process_deterministic_signals_and_journal(df, tf):
     """
-    Deterministically processes the entire 500-candle dataset.
-    Logs historical trade entries/exits and identifies any active open trade.
+    Processes candles deterministically with calibrated 2-candle expansion window rules.
     """
     cfg = TF_CONFIGS[tf]
     adx_thresh = cfg["adx_thresh"]
     min_squeeze = cfg["min_squeeze_bars"]
+    vol_mult = cfg["vol_mult"]
     tp_mult = cfg["tp_mult"]
     sl_mult = cfg["sl_mult"]
     max_hold = cfg["max_hold_bars"]
@@ -141,10 +140,14 @@ def process_deterministic_signals_and_journal(df, tf):
     while i < n_bars - 1:
         row = df.iloc[i]
         prev_row = df.iloc[i-1]
+        prev_row2 = df.iloc[i-2] if i >= 2 else prev_row
         
-        sq_release = (prev_row["Squeeze_On"] == True) and (row["Squeeze_On"] == False)
-        valid_duration = prev_row["Squeeze_Duration"] >= min_squeeze
-        vol_surge = row["Volume"] >= 1.15 * row["Vol_SMA_20"]
+        # 2-candle squeeze release detection
+        sq_release = (prev_row["Squeeze_On"] == True and row["Squeeze_On"] == False) or \
+                     (prev_row2["Squeeze_On"] == True and prev_row["Squeeze_On"] == False and row["Squeeze_On"] == False)
+                     
+        valid_duration = (prev_row["Squeeze_Duration"] >= min_squeeze) or (prev_row2["Squeeze_Duration"] >= min_squeeze)
+        vol_surge = row["Volume"] >= vol_mult * row["Vol_SMA_20"]
         
         sig_dir = None
         if sq_release and valid_duration and vol_surge and row["ADX"] >= adx_thresh:
@@ -166,7 +169,6 @@ def process_deterministic_signals_and_journal(df, tf):
             pnl_pct = 0.0
             exit_time = None
             
-            # Evaluate subsequent candles for TP/SL breach
             j = i + 1
             last_bar_evaluated = j
             while j < min(i + max_hold + 1, n_bars):
@@ -215,7 +217,7 @@ def process_deterministic_signals_and_journal(df, tf):
             if status == "OPEN" and last_bar_evaluated >= n_bars - 1:
                 active_position = trade_obj
                 
-            i = j  # Fast-forward past trade holding duration
+            i = j  # Fast-forward past position holding duration
         else:
             i += 1
 
@@ -266,7 +268,6 @@ class handler(BaseHTTPRequestHandler):
             tp_mult = cfg["tp_mult"]
             sl_mult = cfg["sl_mult"]
             
-            # Determine UI State and Explanations
             if active_pos is not None:
                 state = f"ACTIVE POSITION ({active_pos['direction']})"
                 entry_val = f"${active_pos['entry']:,.2f} (LOCKED)"
@@ -289,12 +290,11 @@ class handler(BaseHTTPRequestHandler):
                 exp_tp = "N/A (No active position)"
                 exp_sl = "N/A (No active position)"
 
-            # Journal Performance Statistics
             closed = [t for t in journal if t["status"] in ["TARGET_HIT", "SL_HIT"]]
             wins = [t for t in closed if t["status"] == "TARGET_HIT"]
             w_rate = round((len(wins) / len(closed)) * 100, 1) if closed else 0.0
             
-            learning_status = f"DETERMINISTIC ({len(closed)} Closed Trades | Win Rate: {w_rate}%)"
+            learning_status = f"CALIBRATED ({len(closed)} Closed Trades | Win Rate: {w_rate}%)"
             
             payload = {
                 "timeframe": tf.upper(),
