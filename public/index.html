@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Crypto Directional Trades | Calibrated IST Engine</title>
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  <!-- MathJax for rendering formulas -->
   <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
   <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
@@ -20,6 +21,7 @@
       --accent-red: #f23645;
       --accent-blue: #2962ff;
       --accent-gold: #f5a623;
+      --accent-purple: #9c27b0;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
     body { background-color: var(--bg-dark); color: var(--text-main); padding: 20px; line-height: 1.5; }
@@ -61,6 +63,14 @@
     .status-hit { color: var(--accent-green); font-weight: 700; }
     .status-sl { color: var(--accent-red); font-weight: 700; }
     .status-open { color: var(--accent-gold); font-weight: 700; }
+
+    /* Tab 3 Execution & Math Styling */
+    .section-header { font-size: 1.1rem; font-weight: 800; color: var(--text-bright); margin: 24px 0 12px 0; border-bottom: 1px solid var(--card-border); padding-bottom: 8px; }
+    .flow-step { background: var(--card-bg); border: 1px solid var(--card-border); border-left: 4px solid var(--accent-blue); padding: 14px 18px; border-radius: 6px; margin-bottom: 12px; }
+    .flow-step-title { font-size: 0.88rem; font-weight: 700; color: var(--text-bright); margin-bottom: 4px; }
+    .flow-step-desc { font-size: 0.83rem; color: #a3a6b4; }
+    .math-card { background: var(--panel-bg); border: 1px solid var(--card-border); border-radius: 8px; padding: 18px; margin-bottom: 16px; }
+    .math-formula { background: var(--card-bg); border: 1px dashed var(--card-border); padding: 12px; border-radius: 6px; margin: 10px 0; font-size: 0.92rem; overflow-x: auto; color: #64b5f6; }
   </style>
 </head>
 <body>
@@ -82,7 +92,7 @@
   <div class="tabs-nav">
     <button class="tab-btn active" onclick="switchTab('tab1')">📊 Tab 1: Live Signals & Explanation</button>
     <button class="tab-btn" onclick="switchTab('tab2')">📖 Tab 2: Signal Journal & Adaptive Learning</button>
-    <button class="tab-btn" onclick="switchTab('tab3')">📐 Tab 3: Execution Plan & Formulas</button>
+    <button class="tab-btn" onclick="switchTab('tab3')">📐 Tab 3: Execution Plan & Mathematical Formulas</button>
   </div>
 
   <!-- TAB 1: LIVE SIGNALS & EXPLANATION -->
@@ -198,13 +208,143 @@
 
   <!-- TAB 3: EXECUTION PLAN & MATHEMATICAL FORMULAS -->
   <div id="tab3" class="tab-content">
+    
+    <!-- Section 1: Execution Architecture & Pipeline -->
     <div class="section-header">⚙️ System Execution Architecture & Pipeline</div>
+    
     <div class="flow-step" style="border-left-color: var(--accent-blue);">
       <div class="flow-step-title">Step 1: REST Ingestion & IST Timezone Normalization</div>
       <div class="flow-step-desc">
-        Queries Delta Exchange India REST endpoints every 30 seconds for live OHLCV candles (`/v2/history/candles`). Epoch UTC timestamps are converted to IST (UTC + 5:30).
+        Queries Delta Exchange India REST API endpoints (`/v2/history/candles`) every 30 seconds to fetch 500 OHLCV candles (~5.2 days for 15m; ~20.8 days for 1h). Epoch UTC timestamps are converted to IST (UTC + 5:30).
       </div>
     </div>
+
+    <div class="flow-step" style="border-left-color: var(--accent-purple);">
+      <div class="flow-step-title">Step 2: Vectorized Analytics & Indicator Matrix</div>
+      <div class="flow-step-desc">
+        Computes technical indicators using native `pandas` and `numpy`: EMA (20, 50, 200), ATR (14), Bollinger Bands (20, 2.0 std), Keltner Channels (20, 1.5 ATR), TTM Squeeze Duration, ADX (14), and Volume SMA (20).
+      </div>
+    </div>
+
+    <div class="flow-step" style="border-left-color: var(--accent-gold);">
+      <div class="flow-step-title">Step 3: Signal Classification & Multi-Filter Engine</div>
+      <div class="flow-step-desc">
+        Evaluates breakout triggers across a 2-candle window: Squeeze release trigger, Volume surge ($\ge 1.05 \times \text{SMA}_{20}$ for 15m; $\ge 1.08 \times \text{SMA}_{20}$ for 1h), Trend alignment ($\text{Price} > \text{EMA}_{200}$ for Long, $\text{Price} < \text{EMA}_{200}$ for Short), and Momentum positivity ($\text{Squeeze\_Mom} > 0$).
+      </div>
+    </div>
+
+    <div class="flow-step" style="border-left-color: var(--accent-green);">
+      <div class="flow-step-title">Step 4: Fixed-Target Position Locking & State Machine</div>
+      <div class="flow-step-desc">
+        Upon trade trigger, entry price, stop-loss, and take-profit targets are locked in state memory. Levels remain frozen across API refreshes until intra-candle price action hits TP or SL.
+      </div>
+    </div>
+
+    <div class="flow-step" style="border-left-color: var(--accent-red);">
+      <div class="flow-step-title">Step 5: Deterministic History Scanner & Journal Logging</div>
+      <div class="flow-step-desc">
+        Processes all 500 bars sequentially to detect historical trade entries/exits, ensuring that serverless container restarts do not lose signal history or active position state.
+      </div>
+    </div>
+
+    <!-- Section 2: Connected API Registry -->
+    <div class="section-header">🌐 Connected API Endpoint Registry</div>
+    <div class="card" style="padding: 0; overflow: hidden; margin-bottom: 24px;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Data Feed</th>
+            <th>Source / Provider</th>
+            <th>REST Endpoint</th>
+            <th>Window Size</th>
+            <th>Timezone</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>15M OHLCV Candles</td>
+            <td>Delta Exchange India</td>
+            <td>`/v2/history/candles?resolution=15m`</td>
+            <td>500 Bars (~5.2 Days)</td>
+            <td>IST (UTC + 5:30)</td>
+          </tr>
+          <tr>
+            <td>1H OHLCV Candles</td>
+            <td>Delta Exchange India</td>
+            <td>`/v2/history/candles?resolution=1h`</td>
+            <td>500 Bars (~20.8 Days)</td>
+            <td>IST (UTC + 5:30)</td>
+          </tr>
+          <tr>
+            <td>Options Chain & OI</td>
+            <td>Delta Exchange India</td>
+            <td>`/v2/tickers`</td>
+            <td>Real-Time Tick</td>
+            <td>IST (UTC + 5:30)</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Section 3: Mathematical Formulas & Quantitative Derivations -->
+    <div class="section-header">🧮 Mathematical Formulas & Quantitative Derivations</div>
+
+    <div class="math-card">
+      <h4 style="color: var(--text-bright); margin-bottom: 6px;">1. TTM Volatility Squeeze Condition</h4>
+      <p style="font-size: 0.85rem; color: #a3a6b4;">Detects volatility compression when Bollinger Bands fall inside Keltner Channels.</p>
+      <div class="math-formula">
+        $$\text{BB}_{\text{Upper/Lower}} = \mu_{20} \pm 2.0 \cdot \sigma_{20}$$
+        $$\text{KC}_{\text{Upper/Lower}} = \text{EMA}_{20} \pm 1.5 \cdot \text{ATR}_{14}$$
+        $$\text{Squeeze\_On} = (\text{BB}_{\text{Lower}} > \text{KC}_{\text{Lower}}) \land (\text{BB}_{\text{Upper}} < \text{KC}_{\text{Upper}})$$
+      </div>
+    </div>
+
+    <div class="math-card">
+      <h4 style="color: var(--text-bright); margin-bottom: 6px;">2. Average True Range ($\text{ATR}_{14}$)</h4>
+      <p style="font-size: 0.85rem; color: #a3a6b4;">Measures market volatility to dynamically scale stop-loss and take-profit targets.</p>
+      <div class="math-formula">
+        $$\text{TR}_t = \max\left(H_t - L_t, \, \vert{}H_t - C_{t-1}\vert{}, \, \vert{}L_t - C_{t-1}\vert{}\right)$$
+        $$\text{ATR}_{14} = \frac{1}{14} \sum_{i=0}^{13} \text{TR}_{t-i}$$
+      </div>
+    </div>
+
+    <div class="math-card">
+      <h4 style="color: var(--text-bright); margin-bottom: 6px;">3. TTM Momentum Histogram</h4>
+      <p style="font-size: 0.85rem; color: #a3a6b4;">Calculates linear regression delta against the midpoint of price extremes and EMA 20.</p>
+      <div class="math-formula">
+        $$\Delta_{\text{Mid}} = \frac{\max(H_{20}) + \min(L_{20})}{2}$$
+        $$\text{Squeeze\_Mom} = C_t - \left( \frac{\Delta_{\text{Mid}} + \text{EMA}_{20}}{2} \right)$$
+      </div>
+    </div>
+
+    <div class="math-card">
+      <h4 style="color: var(--text-bright); margin-bottom: 6px;">4. Average Directional Index ($\text{ADX}_{14}$)</h4>
+      <p style="font-size: 0.85rem; color: #a3a6b4;">Filters out non-trending market chop by requiring trend intensity to breach timeframe-calibrated threshold $\theta_{\text{ADX}}$.</p>
+      <div class="math-formula">
+        $$+\text{DM} = H_t - H_{t-1}, \quad -\text{DM} = L_{t-1} - L_t$$
+        $$+\text{DI}_{14} = 100 \cdot \frac{\text{EMA}_{14}(+\text{DM})}{\text{ATR}_{14}}, \quad -\text{DI}_{14} = 100 \cdot \frac{\text{EMA}_{14}(-\text{DM})}{\text{ATR}_{14}}$$
+        $$\text{DX} = 100 \cdot \frac{\vert{}+\text{DI} - -\text{DI}\vert{}}{+\text{DI} + -\text{DI}}, \quad \text{ADX}_{14} = \text{EMA}_{14}(\text{DX})$$
+      </div>
+    </div>
+
+    <div class="math-card">
+      <h4 style="color: var(--text-bright); margin-bottom: 6px;">5. Fixed Entry, Take-Profit Target, and Stop-Loss Levels</h4>
+      <p style="font-size: 0.85rem; color: #a3a6b4;">Establishes asymmetric Risk-to-Reward ratio ($k_{\text{TP}} : k_{\text{SL}} = 2.5 : 1$ for 15M; $2.8 : 1$ for 1H).</p>
+      <div class="math-formula">
+        $$\text{Target}_{\text{Bullish}} = \text{Entry} + \left(k_{\text{TP}} \cdot \text{ATR}_{14}\right), \quad \text{SL}_{\text{Bullish}} = \text{Entry} - \left(k_{\text{SL}} \cdot \text{ATR}_{14}\right)$$
+        $$\text{Target}_{\text{Bearish}} = \text{Entry} - \left(k_{\text{TP}} \cdot \text{ATR}_{14}\right), \quad \text{SL}_{\text{Bearish}} = \text{Entry} + \left(k_{\text{SL}} \cdot \text{ATR}_{14}\right)$$
+      </div>
+    </div>
+
+    <div class="math-card">
+      <h4 style="color: var(--text-bright); margin-bottom: 6px;">6. Volume Expansion Filter Condition</h4>
+      <p style="font-size: 0.85rem; color: #a3a6b4;">Ensures institutional volume confirms the squeeze release.</p>
+      <div class="math-formula">
+        $$\text{Volume\_SMA}_{20} = \frac{1}{20} \sum_{i=0}^{19} V_{t-i}$$
+        $$\text{Volume\_Surge} = V_t \ge \alpha_{\text{vol}} \cdot \text{Volume\_SMA}_{20} \quad (\alpha_{\text{vol}} = 1.05 \text{ for 15M}, 1.08 \text{ for 1H})$$
+      </div>
+    </div>
+
   </div>
 
   <script>
@@ -319,6 +459,11 @@
         };
 
         Plotly.newPlot('chart', [traceCandles, traceEMA20, traceEMA200, traceMom], layout, { responsive: true });
+
+        // Re-render MathJax formulas if available
+        if (window.MathJax) {
+          MathJax.typesetPromise();
+        }
       } catch (e) {
         console.error('Fetch error:', e);
       }
