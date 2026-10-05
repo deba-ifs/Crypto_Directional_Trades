@@ -35,15 +35,15 @@ NOTIFIED_ENTRIES = set()
 NOTIFIED_EXITS = set()
 
 # =========================================================
-# NOTIFICATION DISPATCHERS
+# NOTIFICATION DISPATCHERS (EMAIL, TELEGRAM & WHATSAPP)
 # =========================================================
 
 def send_email_alert(subject: str, body: str):
     smtp_server = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
     smtp_port = int(os.environ.get("SMTP_PORT", 587))
-    smtp_user = os.environ.get("SMTP_USER", "")
-    smtp_pass = os.environ.get("SMTP_PASS", "")
-    target_email = os.environ.get("TARGET_EMAIL", "debashish@ifinstrats.com")
+    smtp_user = os.environ.get("SMTP_USER", "").strip()
+    smtp_pass = os.environ.get("SMTP_PASS", "").strip()
+    target_email = os.environ.get("TARGET_EMAIL", "debashish@ifinstrats.com").strip()
 
     if not smtp_user or not smtp_pass:
         print("[Notifier] Email credentials missing in Environment Variables.")
@@ -67,31 +67,82 @@ def send_email_alert(subject: str, body: str):
         return False, str(e)
 
 
-def send_whatsapp_alert(message_body: str):
-    account_sid = os.environ.get("TWILIO_SID", "")
-    auth_token = os.environ.get("TWILIO_TOKEN", "")
-    from_number = os.environ.get("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")
-    to_number = os.environ.get("TARGET_WHATSAPP", "whatsapp:+919611900668")
+def send_telegram_alert(message_body: str):
+    """Sends instant Telegram push notification via Bot API."""
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 
-    if not account_sid or not auth_token:
-        print("[Notifier] Twilio credentials missing in Environment Variables.")
-        return False, "Twilio credentials missing"
+    if not bot_token or not chat_id:
+        return False, "Telegram credentials missing"
 
     try:
-        url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json"
+        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
         payload = {
-            "From": from_number,
-            "To": to_number,
-            "Body": message_body
+            "chat_id": chat_id,
+            "text": message_body,
+            "parse_mode": "Markdown"
         }
-        res = requests.post(url, data=payload, auth=(account_sid, auth_token), timeout=8)
-        if res.status_code in [200, 201]:
-            return True, "Success"
+        res = requests.post(url, json=payload, timeout=8)
+        if res.status_code == 200:
+            print("[Notifier] Telegram message sent successfully!")
+            return True, "Success via Telegram"
         else:
-            return False, res.text
+            print(f"[Notifier Error] Telegram returned: {res.text}")
+            return False, f"Telegram Error: {res.text}"
     except Exception as e:
-        print(f"[Notifier Error] WhatsApp failed: {e}")
+        print(f"[Notifier Error] Telegram failed: {e}")
         return False, str(e)
+
+
+def send_whatsapp_alert(message_body: str):
+    """Dispatches WhatsApp via Green-API, CallMeBot, or Twilio."""
+    green_id = os.environ.get("GREEN_API_INSTANCE", "").strip()
+    green_token = os.environ.get("GREEN_API_TOKEN", "").strip()
+    
+    # 1. GREEN-API (Free WhatsApp Web Gateway)
+    if green_id and green_token:
+        try:
+            url = f"https://api.green-api.com/waInstance{green_id}/sendMessage/{green_token}"
+            payload = {
+                "chatId": "919611900668@c.us",
+                "message": message_body
+            }
+            res = requests.post(url, json=payload, timeout=8)
+            if res.status_code == 200:
+                return True, "Success via Green-API"
+        except Exception as e:
+            print(f"[Notifier Error] Green-API failed: {e}")
+
+    # 2. CALLMEBOT DISPATCHER
+    callmebot_key = os.environ.get("CALLMEBOT_APIKEY", "").strip()
+    if callmebot_key:
+        try:
+            target_phone = "919611900668"
+            encoded_text = urllib.parse.quote(message_body)
+            url = f"https://api.callmebot.com/whatsapp.php?phone={target_phone}&text={encoded_text}&apikey={callmebot_key}"
+            res = requests.get(url, timeout=10)
+            if res.status_code == 200:
+                return True, "Success via CallMeBot"
+        except Exception as e:
+            print(f"[Notifier Error] CallMeBot failed: {e}")
+
+    # 3. TWILIO DISPATCHER
+    account_sid = os.environ.get("TWILIO_SID", "").strip()
+    auth_token = os.environ.get("TWILIO_TOKEN", "").strip()
+    from_number = os.environ.get("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886").strip()
+    to_number = os.environ.get("TARGET_WHATSAPP", "whatsapp:+919611900668").strip()
+
+    if account_sid and auth_token:
+        try:
+            url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json"
+            payload = {"From": from_number, "To": to_number, "Body": message_body}
+            res = requests.post(url, data=payload, auth=(account_sid, auth_token), timeout=8)
+            if res.status_code in [200, 201]:
+                return True, "Success via Twilio"
+        except Exception as e:
+            print(f"[Notifier Error] Twilio failed: {e}")
+
+    return False, "No active WhatsApp provider configured"
 
 
 def dispatch_action_notifications(event_type: str, trade: dict):
@@ -107,17 +158,18 @@ def dispatch_action_notifications(event_type: str, trade: dict):
         
         subject = f"🚨 ACTION REQUIRED: New ETH {tf} {direction} Trade Triggered!"
         body = (
-            f"ACTION ITEM - NEW TRADE SIGNAL DISPATCHED\n"
+            f"*ACTION ITEM - NEW TRADE SIGNAL DISPATCHED*\n"
             f"-----------------------------------------\n"
-            f"Timeframe: {tf}\n"
-            f"Direction: {direction}\n"
-            f"Entry Price: ${entry:,.2f}\n"
-            f"Take Profit (Target): ${tp:,.2f}\n"
-            f"Stop Loss (SL): ${sl:,.2f}\n"
-            f"Trigger Time: {trade_id}\n\n"
-            f"Action Item: Execute designated Delta Exchange option structure (Call/Put Spread)."
+            f"*Timeframe:* {tf}\n"
+            f"*Direction:* {direction}\n"
+            f"*Entry Price:* ${entry:,.2f}\n"
+            f"*Take Profit Target:* ${tp:,.2f}\n"
+            f"*Stop Loss:* ${sl:,.2f}\n"
+            f"*Trigger Time:* {trade_id}\n\n"
+            f"⚡ *Action Item:* Execute designated Delta Exchange option structure."
         )
         send_email_alert(subject, body)
+        send_telegram_alert(body)
         send_whatsapp_alert(body)
 
     elif event_type in ["TARGET_HIT", "SL_HIT", "BREAKEVEN_EXIT"] and trade_id not in NOTIFIED_EXITS:
@@ -129,18 +181,19 @@ def dispatch_action_notifications(event_type: str, trade: dict):
         
         subject = f"🎯 ACTION REQUIRED: ETH {tf} Position Closed ({status_label})"
         body = (
-            f"ACTION ITEM - POSITION CLOSED NOTIFICATION\n"
+            f"*ACTION ITEM - POSITION CLOSED*\n"
             f"-----------------------------------------\n"
-            f"Timeframe: {tf}\n"
-            f"Direction: {direction}\n"
-            f"Original Entry: ${entry:,.2f}\n"
-            f"Exit Status: {status_label}\n"
-            f"Exit Price: ${exit_p:,.2f}\n"
-            f"PnL Realized: {pnl:+.2f}%\n"
-            f"Exit Time: {trade.get('exit_time', trade_id)}\n\n"
-            f"Action Item: Close active option position on Delta Exchange."
+            f"*Timeframe:* {tf}\n"
+            f"*Direction:* {direction}\n"
+            f"*Original Entry:* ${entry:,.2f}\n"
+            f"*Exit Status:* {status_label}\n"
+            f"*Exit Price:* ${exit_p:,.2f}\n"
+            f"*PnL Realized:* {pnl:+.2f}%\n"
+            f"*Exit Time:* {trade.get('exit_time', trade_id)}\n\n"
+            f"⚡ *Action Item:* Close active option position on Delta Exchange."
         )
         send_email_alert(subject, body)
+        send_telegram_alert(body)
         send_whatsapp_alert(body)
 
 # =========================================================
@@ -389,27 +442,29 @@ class handler(BaseHTTPRequestHandler):
             parsed_url = urllib.parse.urlparse(self.path)
             query_params = urllib.parse.parse_qs(parsed_url.query)
             
-            # TEST DISPATCHER TRIGGER
+            # TEST NOTIFIER TRIGGER
             if query_params.get("test", ["false"])[0].lower() == "true":
                 curr_ist = (pd.Timestamp.utcnow() + pd.Timedelta(hours=5, minutes=30)).strftime("%Y-%m-%d %H:%M IST")
                 test_subj = f"🧪 TEST ALERT: Quant Notification Check ({curr_ist})"
                 test_body = (
-                    f"TEST NOTIFICATION - NOTIFIER SYSTEM CHECK\n"
+                    f"*TEST NOTIFICATION - SYSTEM CHECK*\n"
                     f"-----------------------------------------\n"
-                    f"Timeframe: 15M (SYSTEM TEST)\n"
-                    f"Direction: BULLISH\n"
-                    f"Entry Price: $2,650.00\n"
-                    f"Take Profit Target: $2,716.25\n"
-                    f"Stop Loss: $2,623.50\n"
-                    f"Timestamp: {curr_ist}\n\n"
-                    f"If you receive this, your Vercel Environment Variables for Email & WhatsApp are configured correctly!"
+                    f"*Timeframe:* 15M (SYSTEM TEST)\n"
+                    f"*Direction:* BULLISH\n"
+                    f"*Entry Price:* $2,650.00\n"
+                    f"*Take Profit Target:* $2,716.25\n"
+                    f"*Stop Loss:* $2,623.50\n"
+                    f"*Timestamp:* {curr_ist}\n\n"
+                    f"If you receive this, your notification channels are working!"
                 )
                 email_ok, email_msg = send_email_alert(test_subj, test_body)
+                tg_ok, tg_msg = send_telegram_alert(test_body)
                 wa_ok, wa_msg = send_whatsapp_alert(test_body)
                 
                 resp = {
                     "status": "TEST_DISPATCHED",
                     "email": {"success": email_ok, "details": email_msg},
+                    "telegram": {"success": tg_ok, "details": tg_msg},
                     "whatsapp": {"success": wa_ok, "details": wa_msg}
                 }
                 self.send_response(200)
